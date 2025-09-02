@@ -28,5 +28,48 @@ func GetMigrations() []*gormigrate.Migration {
 				return tx.Migrator().DropTable("url_visits", "urls", "users")
 			},
 		},
+		{
+			ID: "20250801_auth_system_update",
+			Migrate: func(tx *gorm.DB) error {
+				// Add new columns to users table
+				if err := tx.Exec(`
+					ALTER TABLE users 
+					ADD COLUMN IF NOT EXISTS provider_id VARCHAR(255),
+					ADD COLUMN IF NOT EXISTS first_name VARCHAR(100),
+					ADD COLUMN IF NOT EXISTS last_name VARCHAR(100),
+					ADD COLUMN IF NOT EXISTS avatar_url TEXT,
+					ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE,
+					ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE,
+					ADD COLUMN IF NOT EXISTS last_login TIMESTAMP,
+					ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+				`).Error; err != nil {
+					return err
+				}
+				
+				// Update existing users to have 'email' provider
+				if err := tx.Exec(`
+					UPDATE users 
+					SET provider = 'email' 
+					WHERE provider IS NULL OR provider = ''
+				`).Error; err != nil {
+					return err
+				}
+				
+				return nil
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Exec(`
+					ALTER TABLE users 
+					DROP COLUMN IF EXISTS provider_id,
+					DROP COLUMN IF EXISTS first_name,
+					DROP COLUMN IF EXISTS last_name,
+					DROP COLUMN IF EXISTS avatar_url,
+					DROP COLUMN IF EXISTS email_verified,
+					DROP COLUMN IF EXISTS is_active,
+					DROP COLUMN IF EXISTS last_login,
+					DROP COLUMN IF EXISTS updated_at
+				`).Error
+			},
+		},
 	}
 }

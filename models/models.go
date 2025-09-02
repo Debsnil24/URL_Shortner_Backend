@@ -7,11 +7,19 @@ import (
 )
 
 type User struct {
-	ID           uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
-	Email        string    `gorm:"unique;not null"`
-	PasswordHash string
-	Provider     string
-	CreatedAt    time.Time `gorm:"autoCreateTime"`
+    ID            uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
+    Email         string    `gorm:"unique;not null"`
+    PasswordHash  string    // NULL for OAuth users
+    Provider      string    `gorm:"not null;default:'email'"` // 'email', 'google', 'apple'
+    ProviderID    string    // OAuth provider's unique ID
+    FirstName     string
+    LastName      string
+    AvatarURL     string
+    EmailVerified bool      `gorm:"default:false"`
+    IsActive      bool      `gorm:"default:true"`
+    LastLogin     *time.Time
+    CreatedAt     time.Time `gorm:"autoCreateTime"`
+    UpdatedAt     time.Time `gorm:"autoUpdateTime"`
 }
 
 type URL struct {

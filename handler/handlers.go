@@ -62,7 +62,7 @@ func (h *Handler) ShortenURL(c *gin.Context) {
 	}
 
 	// Return the shortened URL
-	shortened := "http://localhost:8080/" + urlRecord.ShortCode
+	shortened := "https://www.sniply.co.in/" + urlRecord.ShortCode
 
 	c.JSON(http.StatusOK, gin.H{
 		"shortened_url": shortened,
