@@ -5,17 +5,17 @@ import (
 	"strings"
 
 	"github.com/Debsnil24/URL_Shortner.git/models"
-	"github.com/Debsnil24/URL_Shortner.git/service"
+	"github.com/Debsnil24/URL_Shortner.git/controller"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
 type AuthHandler struct {
-	svc *service.AuthService
+	svc *controller.AuthService
 }
 
 func NewAuthHandler(db *gorm.DB) *AuthHandler {
-	return &AuthHandler{svc: service.NewAuthService(db)}
+	return &AuthHandler{svc: controller.NewAuthService(db)}
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
