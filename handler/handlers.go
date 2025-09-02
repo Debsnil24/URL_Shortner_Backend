@@ -12,11 +12,13 @@ import (
 
 type Handler struct {
 	urlController *controller.URLController
+	auth          *AuthHandler
 }
 
 func NewHandler(db *gorm.DB) *Handler {
 	return &Handler{
 		urlController: controller.NewURLController(db),
+		auth:          NewAuthHandler(db),
 	}
 }
 
@@ -71,7 +73,6 @@ func (h *Handler) ShortenURL(c *gin.Context) {
 	})
 }
 
-
 func (h *Handler) DeleteURL(c *gin.Context) {
 	code := c.Param("code")
 
@@ -82,3 +83,7 @@ func (h *Handler) DeleteURL(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "URL deleted successfully"})
 }
+
+// Auth proxy methods for route wiring convenience
+func (h *Handler) Register(c *gin.Context) { h.auth.Register(c) }
+func (h *Handler) Login(c *gin.Context)    { h.auth.Login(c) }

@@ -18,11 +18,11 @@ func RegisterRoutes(router *gin.Engine) {
 		api.DELETE("/delete/:code", h.DeleteURL)
 	}
 
-	// auth := router.Group("/auth")
-	// {
-	// 	auth.POST("/register", h.Register)
-	// 	auth.POST("/login", h.Login)
-	// 	auth.GET("/me", h.AuthCheck)
-	// }
+	auth := router.Group("/auth")
+	{
+		auth.POST("/register", h.Register)
+		auth.POST("/login", h.Login)
+		// auth.POST("/refresh", h.Refresh)
+	}
 
 }
