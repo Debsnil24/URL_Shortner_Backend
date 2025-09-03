@@ -16,7 +16,10 @@ func main() {
 		log.Fatalf("❌ Migration Failed: %v", err)
 	}
 
-	router := gin.Default() 
+	// Initialize Google OAuth (reads env vars)
+	config.InitGoogleOAuth()
+
+	router := gin.Default()
 
 	routes.RegisterRoutes(router)
 

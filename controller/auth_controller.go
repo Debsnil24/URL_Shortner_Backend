@@ -19,6 +19,11 @@ func NewAuthService(db *gorm.DB) *AuthService {
 	return &AuthService{db: db}
 }
 
+// DB exposes the underlying gorm DB for handlers needing simple queries
+func (s *AuthService) DB() *gorm.DB {
+	return s.db
+}
+
 func (s *AuthService) Register(req *models.RegisterRequest) (*models.AuthResponse, error) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 

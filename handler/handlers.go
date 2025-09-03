@@ -85,5 +85,7 @@ func (h *Handler) DeleteURL(c *gin.Context) {
 }
 
 // Auth proxy methods for route wiring convenience
-func (h *Handler) Register(c *gin.Context) { h.auth.Register(c) }
-func (h *Handler) Login(c *gin.Context)    { h.auth.Login(c) }
+func (h *Handler) Register(c *gin.Context)       { h.auth.Register(c) }
+func (h *Handler) Login(c *gin.Context)          { h.auth.Login(c) }
+func (h *Handler) GoogleAuth(c *gin.Context)     { h.auth.GoogleAuth(c) }
+func (h *Handler) GoogleCallback(c *gin.Context) { h.auth.GoogleCallback(c) }
