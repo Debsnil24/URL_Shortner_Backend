@@ -25,6 +25,7 @@ func RegisterRoutes(router *gin.Engine) {
 	{
 		auth.POST("/register", h.Register)
 		auth.POST("/login", h.Login)
+		auth.POST("/logout", h.Logout)
 		auth.GET("/google", h.GoogleAuth)
 		auth.GET("/google/callback", h.GoogleCallback)
 		auth.GET("/me", middleware.AuthRequired(), h.Me)

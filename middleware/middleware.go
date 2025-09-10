@@ -13,17 +13,22 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 )
 
-// AuthRequired validates the Authorization Bearer token and sets claims in context
+// AuthRequired validates the JWT token from HttpOnly cookie and sets claims in context
 func AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" || !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-			c.JSON(http.StatusUnauthorized, models.AuthResponse{Success: false, Error: &models.AuthError{Code: "AUTH_401", Message: "Missing or invalid Authorization header"}})
-			c.Abort()
-			return
+		// First try to get token from HttpOnly cookie
+		token, err := c.Cookie("auth_token")
+		if err != nil || token == "" {
+			// Fallback to Authorization header for backward compatibility
+			authHeader := c.GetHeader("Authorization")
+			if authHeader == "" || !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+				c.JSON(http.StatusUnauthorized, models.AuthResponse{Success: false, Error: &models.AuthError{Code: "AUTH_401", Message: "Missing or invalid authentication token"}})
+				c.Abort()
+				return
+			}
+			token = strings.TrimSpace(authHeader[len("Bearer "):])
 		}
 
-		token := strings.TrimSpace(authHeader[len("Bearer "):])
 		claims, err := util.ValidateToken(token)
 		if err != nil {
 			// Help clients decide to logout by signaling token status
