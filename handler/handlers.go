@@ -89,3 +89,6 @@ func (h *Handler) Register(c *gin.Context)       { h.auth.Register(c) }
 func (h *Handler) Login(c *gin.Context)          { h.auth.Login(c) }
 func (h *Handler) GoogleAuth(c *gin.Context)     { h.auth.GoogleAuth(c) }
 func (h *Handler) GoogleCallback(c *gin.Context) { h.auth.GoogleCallback(c) }
+func (h *Handler) OAuthStatus(c *gin.Context)    { h.auth.OAuthStatus(c) }
+func (h *Handler) TestJWT(c *gin.Context)        { h.auth.TestJWT(c) }
+func (h *Handler) Me(c *gin.Context)             { h.auth.Me(c) }

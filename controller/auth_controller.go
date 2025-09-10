@@ -56,7 +56,7 @@ func (s *AuthService) Register(req *models.RegisterRequest) (*models.AuthRespons
 		return nil, err
 	}
 
-	token, err := util.GenerateToken(user.ID.String(), user.Email, user.Provider)
+	token, err := util.GenerateToken(user.ID, user.Email, user.Provider)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func (s *AuthService) Login(req *models.LoginRequest) (*models.AuthResponse, err
 	user.LastLogin = &now
 	_ = s.db.Model(&user).Update("last_login", now).Error
 
-	token, err := util.GenerateToken(user.ID.String(), user.Email, user.Provider)
+	token, err := util.GenerateToken(user.ID, user.Email, user.Provider)
 	if err != nil {
 		return nil, err
 	}

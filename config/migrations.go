@@ -45,7 +45,7 @@ func GetMigrations() []*gormigrate.Migration {
 				`).Error; err != nil {
 					return err
 				}
-				
+
 				// Update existing users to have 'email' provider
 				if err := tx.Exec(`
 					UPDATE users 
@@ -54,7 +54,7 @@ func GetMigrations() []*gormigrate.Migration {
 				`).Error; err != nil {
 					return err
 				}
-				
+
 				return nil
 			},
 			Rollback: func(tx *gorm.DB) error {
@@ -68,6 +68,27 @@ func GetMigrations() []*gormigrate.Migration {
 					DROP COLUMN IF EXISTS is_active,
 					DROP COLUMN IF EXISTS last_login,
 					DROP COLUMN IF EXISTS updated_at
+				`).Error
+			},
+		},
+		{
+			ID: "20250905_performance_optimization",
+			Migrate: func(tx *gorm.DB) error {
+				// Ensure proper indexing for performance
+				if err := tx.Exec(`
+					CREATE INDEX IF NOT EXISTS idx_users_id ON users(id);
+					CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+					CREATE INDEX IF NOT EXISTS idx_users_provider_id ON users(provider_id);
+				`).Error; err != nil {
+					return err
+				}
+				return nil
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Exec(`
+					DROP INDEX IF EXISTS idx_users_id;
+					DROP INDEX IF EXISTS idx_users_email;
+					DROP INDEX IF EXISTS idx_users_provider_id;
 				`).Error
 			},
 		},

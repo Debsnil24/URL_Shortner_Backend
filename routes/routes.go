@@ -1,8 +1,11 @@
 package routes
 
 import (
+	"time"
+
 	"github.com/Debsnil24/URL_Shortner.git/config"
 	"github.com/Debsnil24/URL_Shortner.git/handler"
+	"github.com/Debsnil24/URL_Shortner.git/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -18,12 +21,13 @@ func RegisterRoutes(router *gin.Engine) {
 		api.DELETE("/delete/:code", h.DeleteURL)
 	}
 
-	auth := router.Group("/auth")
+	auth := router.Group("/auth", middleware.RequestTimeout(1*time.Minute))
 	{
 		auth.POST("/register", h.Register)
 		auth.POST("/login", h.Login)
 		auth.GET("/google", h.GoogleAuth)
-		auth.GET("/callback", h.GoogleCallback)
+		auth.GET("/google/callback", h.GoogleCallback)
+		auth.GET("/me", middleware.AuthRequired(), h.Me)
 		// auth.POST("/refresh", h.Refresh)
 	}
 

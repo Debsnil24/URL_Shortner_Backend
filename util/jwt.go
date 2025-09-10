@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 type JWTClaims struct {
@@ -16,7 +17,7 @@ type JWTClaims struct {
 	jwt.RegisteredClaims
 }
 
-func GenerateToken(userID, email, provider string) (string, error) {
+func GenerateToken(userID uuid.UUID, email, provider string) (string, error) {
 	// Get JWT expiry from environment (default: 24 hours)
 	expiryHours := 24
 	if envExpiry := os.Getenv("JWT_EXPIRY_HOURS"); envExpiry != "" {
@@ -26,14 +27,15 @@ func GenerateToken(userID, email, provider string) (string, error) {
 	}
 
 	// Get JWT secret from environment
-	secretKey := os.Getenv("JWT_SECRET_KEY")
+	secretKey := os.Getenv("JWT_SECRET")
 	if secretKey == "" {
-		return "", fmt.Errorf("JWT_SECRET_KEY not set in environment")
+		return "", fmt.Errorf("JWT_SECRET not set in environment")
 	}
 
 	// Create claims
+	userIDStr := userID.String()
 	claims := JWTClaims{
-		UserID:   userID,
+		UserID:   userIDStr,
 		Email:    email,
 		Provider: provider,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -41,13 +43,13 @@ func GenerateToken(userID, email, provider string) (string, error) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
 			Issuer:    "url-shortener-backend",
-			Subject:   userID,
+			Subject:   userIDStr,
 		},
 	}
 
 	// Create token
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	
+
 	// Sign token
 	tokenString, err := token.SignedString([]byte(secretKey))
 	if err != nil {
@@ -59,9 +61,9 @@ func GenerateToken(userID, email, provider string) (string, error) {
 
 func ValidateToken(tokenString string) (*JWTClaims, error) {
 	// Get JWT secret from environment
-	secretKey := os.Getenv("JWT_SECRET_KEY")
+	secretKey := os.Getenv("JWT_SECRET")
 	if secretKey == "" {
-		return nil, fmt.Errorf("JWT_SECRET_KEY not set in environment")
+		return nil, fmt.Errorf("JWT_SECRET not set in environment")
 	}
 
 	// Parse token
@@ -98,6 +100,12 @@ func RefreshToken(tokenString string) (string, error) {
 		return "", fmt.Errorf("invalid token for refresh: %w", err)
 	}
 
+	// Parse userID back to UUID
+	userID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return "", fmt.Errorf("invalid user ID in token: %w", err)
+	}
+
 	// Generate new token with same user info
-	return GenerateToken(claims.UserID, claims.Email, claims.Provider)
+	return GenerateToken(userID, claims.Email, claims.Provider)
 }
