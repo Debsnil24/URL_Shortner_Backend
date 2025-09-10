@@ -40,6 +40,40 @@ func NewAuthHandler(db *gorm.DB) *AuthHandler {
 	return &AuthHandler{svc: controller.NewAuthService(db)}
 }
 
+// setAuthCookie sets a secure HttpOnly cookie with the JWT token
+func (h *AuthHandler) setAuthCookie(c *gin.Context, token string) {
+	// Check if we're in production (HTTPS)
+	isProduction := os.Getenv("ENV") == "production"
+
+	// For OAuth flows, we need to be more permissive with SameSite
+	// Set SameSite=Lax to allow OAuth redirects
+	sameSite := "Lax"
+	if isProduction {
+		sameSite = "Lax" // Use Lax for production too to allow OAuth
+	}
+
+	c.SetCookie(
+		"auth_token", // name
+		token,        // value
+		3600,         // maxAge (1 hour)
+		"/",          // path
+		"",           // domain (empty for current domain)
+		isProduction, // secure (HTTPS only in production)
+		true,         // httpOnly (prevents XSS)
+	)
+
+	// Set SameSite attribute manually since gin doesn't support it directly
+	c.Header("Set-Cookie", fmt.Sprintf("auth_token=%s; Path=/; Max-Age=3600; HttpOnly; SameSite=%s%s",
+		token,
+		sameSite,
+		func() string {
+			if isProduction {
+				return "; Secure"
+			}
+			return ""
+		}()))
+}
+
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req models.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -65,6 +99,13 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	// Set HttpOnly cookie with JWT token
+	if resp.Success && resp.Data != nil && resp.Data.Token != "" {
+		h.setAuthCookie(c, resp.Data.Token)
+		// Remove token from response for security
+		resp.Data.Token = ""
+	}
+
 	c.JSON(http.StatusCreated, resp)
 }
 
@@ -84,6 +125,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if !resp.Success && resp.Error != nil && (resp.Error.Code == "AUTH_401" || resp.Error.Code == "AUTH_400") {
 		c.JSON(http.StatusUnauthorized, resp)
 		return
+	}
+
+	// Set HttpOnly cookie with JWT token
+	if resp.Success && resp.Data != nil && resp.Data.Token != "" {
+		h.setAuthCookie(c, resp.Data.Token)
+		// Remove token from response for security
+		resp.Data.Token = ""
 	}
 
 	c.JSON(http.StatusOK, resp)
@@ -224,10 +272,13 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 		return
 	}
 
-	// Redirect directly to home page with JWT token
-	redirectURL := fmt.Sprintf("%s/?token=%s", frontendURL, jwt)
-	log.Printf("OAuth success - Redirecting to: %s", redirectURL)
-	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
+	// Set HttpOnly cookie with JWT token
+	h.setAuthCookie(c, jwt)
+	log.Printf("OAuth: Set auth cookie for user %s", user.Email)
+
+	// Redirect to home page (token is now in cookie, not URL)
+	log.Printf("OAuth success - Redirecting to: %s", frontendURL)
+	c.Redirect(http.StatusTemporaryRedirect, frontendURL)
 }
 
 // OAuthStatus provides debugging information about OAuth state
@@ -306,5 +357,24 @@ func (h *AuthHandler) Me(c *gin.Context) {
 		Success: true,
 		Message: "Authenticated",
 		Data:    &user,
+	})
+}
+
+// Logout clears the authentication cookie
+func (h *AuthHandler) Logout(c *gin.Context) {
+	// Clear the auth cookie by setting it to expire immediately
+	c.SetCookie(
+		"auth_token", // name
+		"",           // value (empty)
+		-1,           // maxAge (expire immediately)
+		"/",          // path
+		"",           // domain
+		false,        // secure (not needed for clearing)
+		true,         // httpOnly
+	)
+
+	c.JSON(http.StatusOK, models.AuthResponse{
+		Success: true,
+		Message: "Logged out successfully",
 	})
 }
