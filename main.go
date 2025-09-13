@@ -24,7 +24,13 @@ func main() {
 
 	// Configure CORS
 	config := cors.DefaultConfig()
-	config.AllowOrigins = []string{"http://localhost:3000", "https://url-shortner-nine-psi.vercel.app", "https://www.sniply.co.in"}
+	config.AllowOrigins = []string{
+		"http://localhost:3000",
+		"https://url-shortner-nine-psi.vercel.app",
+		"https://www.sniply.co.in",
+		"https://sniply.co.in",     // Add without www
+		"https://dev.sniply.co.in", // Add dev environment
+	}
 	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
 	config.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"}
 	config.AllowCredentials = true

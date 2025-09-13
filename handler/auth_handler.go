@@ -45,6 +45,12 @@ func (h *AuthHandler) setAuthCookie(c *gin.Context, token string) {
 	// Check if we're in production (HTTPS)
 	isProduction := os.Getenv("ENV") == "production"
 
+	// Get domain from environment or use current domain
+	domain := os.Getenv("COOKIE_DOMAIN")
+	if domain == "" && isProduction {
+		domain = ".sniply.co.in" // Your main domain with leading dot
+	}
+
 	// For OAuth flows, we need to be more permissive with SameSite
 	// Set SameSite=Lax to allow OAuth redirects
 	sameSite := "Lax"
@@ -57,7 +63,7 @@ func (h *AuthHandler) setAuthCookie(c *gin.Context, token string) {
 		token,        // value
 		3600,         // maxAge (1 hour)
 		"/",          // path
-		"",           // domain (empty for current domain)
+		domain,       // domain (set for subdomain sharing)
 		isProduction, // secure (HTTPS only in production)
 		true,         // httpOnly (prevents XSS)
 	)
@@ -149,9 +155,15 @@ func (h *AuthHandler) GoogleAuth(c *gin.Context) {
 		return
 	}
 
+	// Check if we're in production
+	isProduction := os.Getenv("ENV") == "production"
+	domain := os.Getenv("COOKIE_DOMAIN")
+	if domain == "" && isProduction {
+		domain = ".sniply.co.in"
+	}
+
 	// Store state in session/cookie for validation in callback
-	// For now, we'll use a simple approach - in production, use proper session storage
-	c.SetCookie("oauth_state", state, 600, "/", "", false, true) // 10 minutes, httpOnly
+	c.SetCookie("oauth_state", state, 600, "/", domain, isProduction, true) // 10 minutes, httpOnly
 
 	url := config.GoogleOAuthConfig.AuthCodeURL(state,
 		oauth2.SetAuthURLParam("access_type", "offline"),
