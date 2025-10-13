@@ -33,3 +33,9 @@ go.work.sum
 
 /tmp
 /docs
+
+# Implementation and planning documents
+IMPLEMENTATION_PLAN.md
+ARCHITECTURE_NOTES.md
+TODO_LIST.md
+*.planning.md
