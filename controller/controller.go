@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"time"
 
 	"github.com/Debsnil24/URL_Shortner.git/models"
@@ -20,7 +21,7 @@ func NewURLController(db *gorm.DB) *URLController {
 	}
 }
 
-func (c *URLController) GenerateShortCode(originalURL string) (*models.URL, error) {
+func (c *URLController) GenerateShortCode(originalURL string, userID uuid.UUID) (*models.URL, error) {
 	for {
 		// Generate short code using util function
 		code := util.GenerateShortCode()
@@ -28,52 +29,31 @@ func (c *URLController) GenerateShortCode(originalURL string) (*models.URL, erro
 		// Check if this code already exists in database
 		var existingURL models.URL
 		if err := c.DB.Where("short_code = ?", code).First(&existingURL).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				// Code is unique, create the URL record
-				createdAt := time.Now()
-				expiresAt := createdAt.AddDate(5, 0, 0)
-				
-				// Create user first
-				user := models.User{
-					ID:           uuid.New(),
-					Email:        "test@test.com",
-					PasswordHash: "test",
-					Provider:     "local",
-					CreatedAt:    createdAt,
-				}
-				
-				if err := c.DB.Create(&user).Error; err != nil {
-					return nil, err
-				}
-
-				// Create URL with the user reference
-				urlRecord := models.URL{
-					ShortCode:   code,
-					OriginalURL: originalURL,
-					ClickCount:  0,
-					UserID:      user.ID,
-					CreatedAt:   createdAt,
-					ExpiresAt:   &expiresAt,
-				}
-
-				if err := c.DB.Create(&urlRecord).Error; err != nil {
-					return nil, err
-				}
-
-				return &urlRecord, nil
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				// Database error, abort and surface error
+				return nil, err
 			}
-			// Database error, try again
-			continue
+
+			createdAt := time.Now()
+			expiresAt := createdAt.AddDate(5, 0, 0)
+
+			urlRecord := models.URL{
+				ShortCode:   code,
+				OriginalURL: originalURL,
+				ClickCount:  0,
+				UserID:      userID,
+				CreatedAt:   createdAt,
+				UpdatedAt:   createdAt,
+				ExpiresAt:   &expiresAt,
+			}
+
+			if err := c.DB.Create(&urlRecord).Error; err != nil {
+				return nil, err
+			}
+
+			return &urlRecord, nil
 		}
 
 		// Code exists, generate a new one
-		continue
 	}
-}
-
-func (c *URLController) DeleteURL(code string) error {
-	if err := c.DB.Where("short_code = ?", code).Delete(&models.URL{}).Error; err != nil {
-		return err
-	}
-	return nil
 }
