@@ -92,5 +92,28 @@ func GetMigrations() []*gormigrate.Migration {
 				`).Error
 			},
 		},
+		{
+			ID: "20251111_url_updated_at_column",
+			Migrate: func(tx *gorm.DB) error {
+				if err := tx.Exec(`
+					ALTER TABLE urls
+					ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+				`).Error; err != nil {
+					return err
+				}
+
+				return tx.Exec(`
+					UPDATE urls
+					SET updated_at = created_at
+					WHERE updated_at IS NULL
+				`).Error
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Exec(`
+					ALTER TABLE urls
+					DROP COLUMN IF EXISTS updated_at
+				`).Error
+			},
+		},
 	}
 }

@@ -12,13 +12,16 @@ import (
 func RegisterRoutes(router *gin.Engine) {
 	h := handler.NewHandler(config.DB)
 
+	// Public redirect route
+	router.GET("/:code", h.RedirectURL)
+
 	api := router.Group("/api")
 	{
 		api.GET("/test", h.TestHandler)
-		api.POST("/shorten", h.ShortenURL)
-		// api.GET("/:code", h.RedirectURL)
-		// api.GET("/stats/:code", h.GetStats)
-		api.DELETE("/delete/:code", h.DeleteURL)
+		api.POST("/shorten", middleware.AuthRequired(), h.ShortenURL)
+		api.GET("/urls", middleware.AuthRequired(), h.ListURLs)
+		api.GET("/urls/:code/stats", middleware.AuthRequired(), h.GetURLStats)
+		api.DELETE("/delete/:code", middleware.AuthRequired(), h.DeleteURL)
 	}
 
 	auth := router.Group("/auth", middleware.RequestTimeout(1*time.Minute))
