@@ -104,13 +104,15 @@ func (h *Handler) ListURLs(c *gin.Context) {
 		return
 	}
 
-	var urls []models.URL
-	if err := h.urlController.DB.Where("user_id = ?", userID).Order("created_at DESC").Find(&urls).Error; err != nil {
+	// Use controller to fetch URLs with statistics
+	summaries, err := h.urlController.ListURLsByUser(userID)
+	if err != nil {
 		log.Printf("event=list_urls_error user_id=%s reason=query_failed err=%v", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch URLs"})
 		return
 	}
 
+	// Convert controller URLSummary to response format
 	type urlSummary struct {
 		ShortCode          string     `json:"short_code"`
 		OriginalURL        string     `json:"original_url"`
@@ -123,36 +125,18 @@ func (h *Handler) ListURLs(c *gin.Context) {
 		LastVisitUserAgent *string    `json:"last_visit_user_agent"`
 	}
 
-	response := make([]urlSummary, 0, len(urls))
-
-	for _, urlRecord := range urls {
-		var visitCount int64
-		if err := h.urlController.DB.Model(&models.URLVisit{}).Where("url_id = ?", urlRecord.ID).Count(&visitCount).Error; err != nil {
-			log.Printf("event=list_urls_error short_code=%s reason=count_failed err=%v", urlRecord.ShortCode, err)
-		}
-
-		var latestVisit models.URLVisit
-		var lastVisitAt *time.Time
-		var lastVisitUserAgent *string
-
-		if err := h.urlController.DB.Where("url_id = ?", urlRecord.ID).Order("created_at DESC").First(&latestVisit).Error; err == nil {
-			lastVisitAt = &latestVisit.CreatedAt
-			ua := latestVisit.UserAgent
-			lastVisitUserAgent = &ua
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			log.Printf("event=list_urls_error short_code=%s reason=latest_visit_failed err=%v", urlRecord.ShortCode, err)
-		}
-
+	response := make([]urlSummary, 0, len(summaries))
+	for _, summary := range summaries {
 		response = append(response, urlSummary{
-			ShortCode:          urlRecord.ShortCode,
-			OriginalURL:        urlRecord.OriginalURL,
-			ClickCount:         urlRecord.ClickCount,
-			CreatedAt:          urlRecord.CreatedAt,
-			UpdatedAt:          urlRecord.UpdatedAt,
-			ExpiresAt:          urlRecord.ExpiresAt,
-			TotalVisits:        visitCount,
-			LastVisitAt:        lastVisitAt,
-			LastVisitUserAgent: lastVisitUserAgent,
+			ShortCode:          summary.ShortCode,
+			OriginalURL:        summary.OriginalURL,
+			ClickCount:         summary.ClickCount,
+			CreatedAt:          summary.CreatedAt,
+			UpdatedAt:          summary.UpdatedAt,
+			ExpiresAt:          summary.ExpiresAt,
+			TotalVisits:        summary.TotalVisits,
+			LastVisitAt:        summary.LastVisitAt,
+			LastVisitUserAgent: summary.LastVisitUserAgent,
 		})
 	}
 
@@ -179,22 +163,17 @@ func (h *Handler) DeleteURL(c *gin.Context) {
 		return
 	}
 
-	var urlRecord models.URL
-	if err := h.urlController.DB.Where("short_code = ?", code).First(&urlRecord).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	// Use controller to delete URL (includes ownership check)
+	err := h.urlController.DeleteURL(code, userID)
+	if err != nil {
+		if err.Error() == "URL not found" {
 			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to lookup URL"})
-		return
-	}
-
-	if urlRecord.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to delete this URL"})
-		return
-	}
-
-	if err := h.urlController.DB.Delete(&urlRecord).Error; err != nil {
+		if err.Error() == "permission denied" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to delete this URL"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete URL"})
 		return
 	}
@@ -211,8 +190,9 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 		return
 	}
 
-	var urlRecord models.URL
-	if err := h.urlController.DB.Where("short_code = ?", code).First(&urlRecord).Error; err != nil {
+	// Use controller to get URL by code
+	urlRecord, err := h.urlController.GetURLByCode(code)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			log.Printf("event=redirect_error code=%s reason=not_found", code)
 			c.JSON(http.StatusNotFound, gin.H{"error": "Short URL not found"})
@@ -229,16 +209,12 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 		return
 	}
 
-	if err := h.urlController.DB.Model(&urlRecord).Where("id = ?", urlRecord.ID).UpdateColumn("click_count", gorm.Expr("click_count + ?", 1)).Error; err != nil {
+	// Use controller methods to record the visit
+	if err := h.urlController.IncrementClickCount(urlRecord.ID); err != nil {
 		log.Printf("event=redirect_error code=%s reason=click_increment_failed err=%v", code, err)
 	}
 
-	visit := models.URLVisit{
-		URLID:     urlRecord.ID,
-		IPAddress: c.ClientIP(),
-		UserAgent: c.GetHeader("User-Agent"),
-	}
-	if err := h.urlController.DB.Create(&visit).Error; err != nil {
+	if err := h.urlController.RecordVisit(urlRecord.ID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
 		log.Printf("event=redirect_error code=%s reason=visit_create_failed err=%v", code, err)
 	}
 
@@ -262,44 +238,29 @@ func (h *Handler) GetURLStats(c *gin.Context) {
 		return
 	}
 
-	var urlRecord models.URL
-	if err := h.urlController.DB.Where("short_code = ?", code).First(&urlRecord).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	// Use controller to get URL statistics (includes ownership check)
+	stats, err := h.urlController.GetURLStats(code, userID)
+	if err != nil {
+		if err.Error() == "URL not found" {
 			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
 			return
 		}
+		if err.Error() == "permission denied" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to view this URL"})
+			return
+		}
 		log.Printf("event=url_stats_error code=%s err=%v", code, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch URL"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch statistics"})
 		return
-	}
-
-	if urlRecord.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to view this URL"})
-		return
-	}
-
-	var visitCount int64
-	if err := h.urlController.DB.Model(&models.URLVisit{}).Where("url_id = ?", urlRecord.ID).Count(&visitCount).Error; err != nil {
-		log.Printf("event=url_stats_error code=%s reason=count_failed err=%v", code, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to calculate statistics"})
-		return
-	}
-
-	var latestVisit models.URLVisit
-	latestVisitTime := (*time.Time)(nil)
-	if err := h.urlController.DB.Where("url_id = ?", urlRecord.ID).Order("created_at DESC").First(&latestVisit).Error; err == nil {
-		latestVisitTime = &latestVisit.CreatedAt
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		log.Printf("event=url_stats_error code=%s reason=latest_visit_failed err=%v", code, err)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"short_code":            urlRecord.ShortCode,
-		"original_url":          urlRecord.OriginalURL,
-		"click_count":           urlRecord.ClickCount,
-		"total_visits":          visitCount,
-		"last_visit_at":         latestVisitTime,
-		"last_visit_user_agent": latestVisit.UserAgent,
+		"short_code":            stats.ShortCode,
+		"original_url":          stats.OriginalURL,
+		"click_count":           stats.ClickCount,
+		"total_visits":          stats.TotalVisits,
+		"last_visit_at":         stats.LastVisitAt,
+		"last_visit_user_agent": stats.LastVisitUserAgent,
 	})
 }
 

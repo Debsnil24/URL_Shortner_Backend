@@ -58,13 +58,6 @@ func AuthRequired() gin.HandlerFunc {
 	}
 }
 
-// min returns the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
 
 // RequestTimeout cancels the request if the handler chain exceeds the given timeout
 func RequestTimeout(timeout time.Duration) gin.HandlerFunc {
