@@ -10,6 +10,7 @@ import (
 	"github.com/Debsnil24/URL_Shortner.git/models"
 	"github.com/Debsnil24/URL_Shortner.git/util"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	jwt "github.com/golang-jwt/jwt/v5"
 )
 
@@ -42,7 +43,17 @@ func AuthRequired() gin.HandlerFunc {
 			return
 		}
 
+		// Parse userID from claims and set in context for easy access
+		userID, err := uuid.Parse(claims.UserID)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, models.AuthResponse{Success: false, Error: &models.AuthError{Code: "AUTH_401", Message: "Invalid user identity in token"}})
+			c.Abort()
+			return
+		}
+
+		// Set both claims and parsed userID in context
 		c.Set("claims", claims)
+		c.Set("userID", userID)
 		c.Next()
 	}
 }

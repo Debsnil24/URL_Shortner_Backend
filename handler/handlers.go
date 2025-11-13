@@ -9,7 +9,6 @@ import (
 
 	"github.com/Debsnil24/URL_Shortner.git/controller"
 	"github.com/Debsnil24/URL_Shortner.git/models"
-	"github.com/Debsnil24/URL_Shortner.git/util"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -61,20 +60,15 @@ func (h *Handler) ShortenURL(c *gin.Context) {
 		req.URL = "https://" + req.URL
 	}
 
-	claimsValue, exists := c.Get("claims")
+	// Get userID from context (set by AuthRequired middleware)
+	userIDValue, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 		return
 	}
 
-	claims, ok := claimsValue.(*util.JWTClaims)
+	userID, ok := userIDValue.(uuid.UUID)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authentication context"})
-		return
-	}
-
-	userID, err := uuid.Parse(claims.UserID)
-	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user identity"})
 		return
 	}
@@ -97,20 +91,15 @@ func (h *Handler) ShortenURL(c *gin.Context) {
 }
 
 func (h *Handler) ListURLs(c *gin.Context) {
-	claimsValue, exists := c.Get("claims")
+	// Get userID from context (set by AuthRequired middleware)
+	userIDValue, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 		return
 	}
 
-	claims, ok := claimsValue.(*util.JWTClaims)
+	userID, ok := userIDValue.(uuid.UUID)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authentication context"})
-		return
-	}
-
-	userID, err := uuid.Parse(claims.UserID)
-	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user identity"})
 		return
 	}
@@ -177,20 +166,15 @@ func (h *Handler) ListURLs(c *gin.Context) {
 func (h *Handler) DeleteURL(c *gin.Context) {
 	code := c.Param("code")
 
-	claimsValue, exists := c.Get("claims")
+	// Get userID from context (set by AuthRequired middleware)
+	userIDValue, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 		return
 	}
 
-	claims, ok := claimsValue.(*util.JWTClaims)
+	userID, ok := userIDValue.(uuid.UUID)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authentication context"})
-		return
-	}
-
-	userID, err := uuid.Parse(claims.UserID)
-	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user identity"})
 		return
 	}
@@ -265,20 +249,15 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 func (h *Handler) GetURLStats(c *gin.Context) {
 	code := c.Param("code")
 
-	claimsValue, exists := c.Get("claims")
+	// Get userID from context (set by AuthRequired middleware)
+	userIDValue, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 		return
 	}
 
-	claims, ok := claimsValue.(*util.JWTClaims)
+	userID, ok := userIDValue.(uuid.UUID)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authentication context"})
-		return
-	}
-
-	userID, err := uuid.Parse(claims.UserID)
-	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user identity"})
 		return
 	}

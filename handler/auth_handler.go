@@ -343,20 +343,21 @@ func (h *AuthHandler) TestJWT(c *gin.Context) {
 
 // Me returns the authenticated user's profile based on JWT claims in context
 func (h *AuthHandler) Me(c *gin.Context) {
-	val, exists := c.Get("claims")
+	// Get userID from context (set by AuthRequired middleware)
+	userIDValue, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, models.AuthResponse{Success: false, Error: &models.AuthError{Code: "AUTH_401", Message: "Unauthorized"}})
 		return
 	}
 
-	claims, ok := val.(*util.JWTClaims)
+	userID, ok := userIDValue.(uuid.UUID)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, models.AuthResponse{Success: false, Error: &models.AuthError{Code: "AUTH_401", Message: "Invalid claims in context"}})
+		c.JSON(http.StatusUnauthorized, models.AuthResponse{Success: false, Error: &models.AuthError{Code: "AUTH_401", Message: "Invalid user identity"}})
 		return
 	}
 
 	var user models.User
-	if err := h.svc.DB().WithContext(c.Request.Context()).Where("id = ?", claims.UserID).First(&user).Error; err != nil {
+	if err := h.svc.DB().WithContext(c.Request.Context()).Where("id = ?", userID).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusUnauthorized, models.AuthResponse{Success: false, Error: &models.AuthError{Code: "AUTH_401", Message: "User not found"}})
 			return
