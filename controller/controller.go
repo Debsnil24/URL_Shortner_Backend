@@ -45,7 +45,9 @@ func NewURLController(db *gorm.DB) *URLController {
 }
 
 func (c *URLController) GenerateShortCode(originalURL string, userID uuid.UUID) (*models.URL, error) {
-	for {
+	const maxAttempts = 10 // Maximum attempts to generate a unique short code
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
 		// Generate short code using util function
 		code := util.GenerateShortCode()
 
@@ -57,6 +59,7 @@ func (c *URLController) GenerateShortCode(originalURL string, userID uuid.UUID) 
 				return nil, err
 			}
 
+			// Code doesn't exist - create it
 			createdAt := time.Now()
 			expiresAt := createdAt.AddDate(5, 0, 0)
 
@@ -77,8 +80,11 @@ func (c *URLController) GenerateShortCode(originalURL string, userID uuid.UUID) 
 			return &urlRecord, nil
 		}
 
-		// Code exists, generate a new one
+		// Code exists, try again
 	}
+
+	// All attempts exhausted - return error to prevent infinite loop
+	return nil, errors.New("failed to generate unique short code after maximum attempts")
 }
 
 // GetURLByCode retrieves a URL by its short code

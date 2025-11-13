@@ -26,6 +26,22 @@ func NewHandler(db *gorm.DB) *Handler {
 	}
 }
 
+// GetUserIDFromContext extracts and validates userID from Gin context
+// Returns the userID if found and valid, or an error if missing or invalid
+func GetUserIDFromContext(c *gin.Context) (uuid.UUID, error) {
+	userIDValue, exists := c.Get("userID")
+	if !exists {
+		return uuid.Nil, errors.New("authentication required")
+	}
+
+	userID, ok := userIDValue.(uuid.UUID)
+	if !ok {
+		return uuid.Nil, errors.New("invalid user identity")
+	}
+
+	return userID, nil
+}
+
 func (h *Handler) TestHandler(c *gin.Context) {
 	var count int
 
@@ -61,15 +77,9 @@ func (h *Handler) ShortenURL(c *gin.Context) {
 	}
 
 	// Get userID from context (set by AuthRequired middleware)
-	userIDValue, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
-		return
-	}
-
-	userID, ok := userIDValue.(uuid.UUID)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user identity"})
+	userID, err := GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -92,15 +102,9 @@ func (h *Handler) ShortenURL(c *gin.Context) {
 
 func (h *Handler) ListURLs(c *gin.Context) {
 	// Get userID from context (set by AuthRequired middleware)
-	userIDValue, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
-		return
-	}
-
-	userID, ok := userIDValue.(uuid.UUID)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user identity"})
+	userID, err := GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -151,20 +155,14 @@ func (h *Handler) DeleteURL(c *gin.Context) {
 	code := c.Param("code")
 
 	// Get userID from context (set by AuthRequired middleware)
-	userIDValue, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
-		return
-	}
-
-	userID, ok := userIDValue.(uuid.UUID)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user identity"})
+	userID, err := GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 
 	// Use controller to delete URL (includes ownership check)
-	err := h.urlController.DeleteURL(code, userID)
+	err = h.urlController.DeleteURL(code, userID)
 	if err != nil {
 		if err.Error() == "URL not found" {
 			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
@@ -226,15 +224,9 @@ func (h *Handler) GetURLStats(c *gin.Context) {
 	code := c.Param("code")
 
 	// Get userID from context (set by AuthRequired middleware)
-	userIDValue, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
-		return
-	}
-
-	userID, ok := userIDValue.(uuid.UUID)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user identity"})
+	userID, err := GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 

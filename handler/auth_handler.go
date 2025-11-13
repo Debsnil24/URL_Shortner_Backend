@@ -344,15 +344,9 @@ func (h *AuthHandler) TestJWT(c *gin.Context) {
 // Me returns the authenticated user's profile based on JWT claims in context
 func (h *AuthHandler) Me(c *gin.Context) {
 	// Get userID from context (set by AuthRequired middleware)
-	userIDValue, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, models.AuthResponse{Success: false, Error: &models.AuthError{Code: "AUTH_401", Message: "Unauthorized"}})
-		return
-	}
-
-	userID, ok := userIDValue.(uuid.UUID)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, models.AuthResponse{Success: false, Error: &models.AuthError{Code: "AUTH_401", Message: "Invalid user identity"}})
+	userID, err := GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, models.AuthResponse{Success: false, Error: &models.AuthError{Code: "AUTH_401", Message: err.Error()}})
 		return
 	}
 
