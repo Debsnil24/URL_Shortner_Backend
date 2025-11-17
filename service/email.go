@@ -80,4 +80,3 @@ func (es *EmailService) SendSupportEmail(name, email, message string) error {
 
 	return nil
 }
-
