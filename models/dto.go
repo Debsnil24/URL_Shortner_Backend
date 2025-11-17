@@ -60,3 +60,16 @@ type UserProfileResponse struct {
 	Data    *User  `json:"data,omitempty"`
 	Error   *AuthError `json:"error,omitempty"`
 }
+
+// Support Request DTOs
+type SupportRequest struct {
+	Name    string `json:"name" binding:"required"`
+	Email   string `json:"email" binding:"required,email"`
+	Message string `json:"message" binding:"required"`
+}
+
+type SupportResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	Error   *AuthError `json:"error,omitempty"`
+}

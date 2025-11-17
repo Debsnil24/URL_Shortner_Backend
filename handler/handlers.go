@@ -9,6 +9,7 @@ import (
 
 	"github.com/Debsnil24/URL_Shortner.git/controller"
 	"github.com/Debsnil24/URL_Shortner.git/models"
+	"github.com/Debsnil24/URL_Shortner.git/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -253,6 +254,45 @@ func (h *Handler) GetURLStats(c *gin.Context) {
 		"total_visits":          stats.TotalVisits,
 		"last_visit_at":         stats.LastVisitAt,
 		"last_visit_user_agent": stats.LastVisitUserAgent,
+	})
+}
+
+func (h *Handler) SubmitSupport(c *gin.Context) {
+	var req models.SupportRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupportResponse{
+			Success: false,
+			Message: "Invalid request data",
+			Error: &models.AuthError{
+				Code:    "VALIDATION_ERROR",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	// Import email service
+	emailService := service.NewEmailService()
+
+	// Send email
+	if err := emailService.SendSupportEmail(req.Name, req.Email, req.Message); err != nil {
+		log.Printf("event=support_email_error name=%s email=%s err=%v", req.Name, req.Email, err)
+		c.JSON(http.StatusInternalServerError, models.SupportResponse{
+			Success: false,
+			Message: "Failed to send support request",
+			Error: &models.AuthError{
+				Code:    "EMAIL_ERROR",
+				Message: "Unable to process your request at this time. Please try again later.",
+			},
+		})
+		return
+	}
+
+	log.Printf("event=support_email_sent name=%s email=%s", req.Name, req.Email)
+	c.JSON(http.StatusOK, models.SupportResponse{
+		Success: true,
+		Message: "Support request submitted successfully. We'll get back to you soon!",
 	})
 }
 

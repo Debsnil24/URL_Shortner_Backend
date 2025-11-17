@@ -22,6 +22,7 @@ func RegisterRoutes(router *gin.Engine) {
 		api.GET("/urls", middleware.AuthRequired(), h.ListURLs)
 		api.GET("/urls/:code/stats", middleware.AuthRequired(), h.GetURLStats)
 		api.DELETE("/delete/:code", middleware.AuthRequired(), h.DeleteURL)
+		api.POST("/support", h.SubmitSupport)
 	}
 
 	auth := router.Group("/auth", middleware.RequestTimeout(1*time.Minute))
