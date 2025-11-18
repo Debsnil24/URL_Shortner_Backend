@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/smtp"
 	"os"
+	"strings"
 )
 
 type EmailService struct {
@@ -34,6 +35,34 @@ func getEnvOrDefault(key, defaultValue string) string {
 	return value
 }
 
+// sanitizeEmailHeader removes dangerous characters that could be used for header injection
+// Prevents email header injection attacks by removing \r, \n, and null bytes
+func sanitizeEmailHeader(input string) string {
+	// Remove carriage returns, line feeds, and null bytes
+	sanitized := strings.ReplaceAll(input, "\r", "")
+	sanitized = strings.ReplaceAll(sanitized, "\n", "")
+	sanitized = strings.ReplaceAll(sanitized, "\x00", "")
+	// Remove any remaining control characters
+	sanitized = strings.Map(func(r rune) rune {
+		if r < 32 && r != 9 { // Allow tab (9) but remove other control chars
+			return -1
+		}
+		return r
+	}, sanitized)
+	return strings.TrimSpace(sanitized)
+}
+
+// sanitizeEmailAddress validates and sanitizes email address for use in headers
+func sanitizeEmailAddress(email string) string {
+	// Basic validation - remove dangerous characters
+	sanitized := sanitizeEmailHeader(email)
+	// Ensure it's a valid email format (basic check)
+	if !strings.Contains(sanitized, "@") {
+		return ""
+	}
+	return sanitized
+}
+
 func (es *EmailService) SendSupportEmail(name, email, message string) error {
 	// Validate required configuration
 	if es.smtpUsername == "" || es.smtpPassword == "" {
@@ -46,11 +75,22 @@ func (es *EmailService) SendSupportEmail(name, email, message string) error {
 		return fmt.Errorf("SUPPORT_EMAIL not configured")
 	}
 
-	// Email subject
-	subject := fmt.Sprintf("Support Request from %s", name)
+	// Sanitize inputs to prevent email header injection attacks
+	sanitizedName := sanitizeEmailHeader(name)
+	sanitizedEmail := sanitizeEmailAddress(email)
+	sanitizedMessage := strings.ReplaceAll(message, "\x00", "") // Remove null bytes from message body
+
+	// Validate sanitized email
+	if sanitizedEmail == "" || !strings.Contains(sanitizedEmail, "@") {
+		return fmt.Errorf("invalid email address")
+	}
+
+	// Email subject - sanitized to prevent header injection
+	subject := fmt.Sprintf("Support Request from %s", sanitizedName)
 
 	// Email body with proper headers
 	// Note: From must be the authenticated email, but Reply-To is set to the submitter's email
+	// All user inputs are sanitized to prevent header injection
 	body := fmt.Sprintf("From: %s\r\n"+
 		"To: %s\r\n"+
 		"Reply-To: %s\r\n"+
@@ -68,7 +108,7 @@ func (es *EmailService) SendSupportEmail(name, email, message string) error {
 		"---\r\n"+
 		"This email was sent from the support form on your website.\r\n"+
 		"Reply to this email to respond directly to %s.\r\n",
-		es.fromEmail, es.toEmail, email, subject, name, email, message, email)
+		es.fromEmail, es.toEmail, sanitizedEmail, subject, sanitizedName, sanitizedEmail, sanitizedMessage, sanitizedEmail)
 
 	// SMTP authentication
 	auth := smtp.PlainAuth("", es.smtpUsername, es.smtpPassword, es.smtpHost)

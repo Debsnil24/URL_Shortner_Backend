@@ -266,7 +266,25 @@ func (h *Handler) SubmitSupport(c *gin.Context) {
 			Message: "Invalid request data",
 			Error: &models.AuthError{
 				Code:    "VALIDATION_ERROR",
-				Message: err.Error(),
+				Message: "Please check your input and try again.",
+			},
+		})
+		return
+	}
+
+	// Sanitize inputs: trim whitespace
+	req.Name = strings.TrimSpace(req.Name)
+	req.Email = strings.TrimSpace(req.Email)
+	req.Message = strings.TrimSpace(req.Message)
+
+	// Additional validation after trimming
+	if req.Name == "" || req.Email == "" || req.Message == "" {
+		c.JSON(http.StatusBadRequest, models.SupportResponse{
+			Success: false,
+			Message: "All fields are required",
+			Error: &models.AuthError{
+				Code:    "VALIDATION_ERROR",
+				Message: "Name, email, and message cannot be empty.",
 			},
 		})
 		return
@@ -277,7 +295,8 @@ func (h *Handler) SubmitSupport(c *gin.Context) {
 
 	// Send email
 	if err := emailService.SendSupportEmail(req.Name, req.Email, req.Message); err != nil {
-		log.Printf("event=support_email_error name=%s email=%s err=%v", req.Name, req.Email, err)
+		// Log detailed error server-side but don't expose it to client
+		log.Printf("event=support_email_error name=%s email=%s ip=%s err=%v", req.Name, req.Email, c.ClientIP(), err)
 		c.JSON(http.StatusInternalServerError, models.SupportResponse{
 			Success: false,
 			Message: "Failed to send support request",
@@ -289,7 +308,7 @@ func (h *Handler) SubmitSupport(c *gin.Context) {
 		return
 	}
 
-	log.Printf("event=support_email_sent name=%s email=%s", req.Name, req.Email)
+	log.Printf("event=support_email_sent name=%s email=%s ip=%s", req.Name, req.Email, c.ClientIP())
 	c.JSON(http.StatusOK, models.SupportResponse{
 		Success: true,
 		Message: "Support request submitted successfully. We'll get back to you soon!",
