@@ -128,6 +128,7 @@ func (h *Handler) ListURLs(c *gin.Context) {
 		UpdatedAt          time.Time  `json:"updated_at"`
 		ExpiresAt          *time.Time `json:"expires_at"`
 		TotalVisits        int64      `json:"total_visits"`
+		UniqueVisitors     int64      `json:"unique_visitors"`
 		LastVisitAt        *time.Time `json:"last_visit_at"`
 		LastVisitUserAgent *string    `json:"last_visit_user_agent"`
 	}
@@ -142,6 +143,7 @@ func (h *Handler) ListURLs(c *gin.Context) {
 			UpdatedAt:          summary.UpdatedAt,
 			ExpiresAt:          summary.ExpiresAt,
 			TotalVisits:        summary.TotalVisits,
+			UniqueVisitors:     summary.UniqueVisitors,
 			LastVisitAt:        summary.LastVisitAt,
 			LastVisitUserAgent: summary.LastVisitUserAgent,
 		})
@@ -254,6 +256,7 @@ func (h *Handler) GetURLStats(c *gin.Context) {
 		"original_url":          stats.OriginalURL,
 		"click_count":           stats.ClickCount,
 		"total_visits":          stats.TotalVisits,
+		"unique_visitors":       stats.UniqueVisitors,
 		"last_visit_at":         stats.LastVisitAt,
 		"last_visit_user_agent": stats.LastVisitUserAgent,
 	})
