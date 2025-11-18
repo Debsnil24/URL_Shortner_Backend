@@ -18,12 +18,14 @@ import (
 type Handler struct {
 	urlController *controller.URLController
 	auth          *AuthHandler
+	emailService  *service.EmailService
 }
 
 func NewHandler(db *gorm.DB) *Handler {
 	return &Handler{
 		urlController: controller.NewURLController(db),
 		auth:          NewAuthHandler(db),
+		emailService:  service.GetEmailService(), // Use singleton email service
 	}
 }
 
@@ -290,25 +292,11 @@ func (h *Handler) SubmitSupport(c *gin.Context) {
 		return
 	}
 
-	// Import email service
-	emailService := service.NewEmailService()
+	// Send email asynchronously - don't block HTTP response
+	// This improves user experience as they get immediate feedback
+	h.emailService.SendSupportEmailAsync(req.Name, req.Email, req.Message)
 
-	// Send email
-	if err := emailService.SendSupportEmail(req.Name, req.Email, req.Message); err != nil {
-		// Log detailed error server-side but don't expose it to client
-		log.Printf("event=support_email_error name=%s email=%s ip=%s err=%v", req.Name, req.Email, c.ClientIP(), err)
-		c.JSON(http.StatusInternalServerError, models.SupportResponse{
-			Success: false,
-			Message: "Failed to send support request",
-			Error: &models.AuthError{
-				Code:    "EMAIL_ERROR",
-				Message: "Unable to process your request at this time. Please try again later.",
-			},
-		})
-		return
-	}
-
-	log.Printf("event=support_email_sent name=%s email=%s ip=%s", req.Name, req.Email, c.ClientIP())
+	log.Printf("event=support_request_submitted name=%s email=%s ip=%s", req.Name, req.Email, c.ClientIP())
 	c.JSON(http.StatusOK, models.SupportResponse{
 		Success: true,
 		Message: "Support request submitted successfully. We'll get back to you soon!",

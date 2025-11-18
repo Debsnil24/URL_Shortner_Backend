@@ -2,9 +2,11 @@ package service
 
 import (
 	"fmt"
+	"log"
 	"net/smtp"
 	"os"
 	"strings"
+	"sync"
 )
 
 type EmailService struct {
@@ -16,6 +18,29 @@ type EmailService struct {
 	toEmail      string
 }
 
+var (
+	emailServiceInstance *EmailService
+	emailServiceOnce     sync.Once
+)
+
+// GetEmailService returns a singleton instance of EmailService
+// This ensures we only read environment variables once and reuse the service
+func GetEmailService() *EmailService {
+	emailServiceOnce.Do(func() {
+		emailServiceInstance = &EmailService{
+			smtpHost:     getEnvOrDefault("SMTP_HOST", "smtp.gmail.com"),
+			smtpPort:     getEnvOrDefault("SMTP_PORT", "587"),
+			smtpUsername: os.Getenv("SMTP_USERNAME"),
+			smtpPassword: os.Getenv("SMTP_PASSWORD"),
+			fromEmail:    os.Getenv("SMTP_FROM_EMAIL"),
+			toEmail:      os.Getenv("SUPPORT_EMAIL"),
+		}
+	})
+	return emailServiceInstance
+}
+
+// NewEmailService creates a new EmailService instance (for testing or custom config)
+// For production use, prefer GetEmailService() singleton
 func NewEmailService() *EmailService {
 	return &EmailService{
 		smtpHost:     getEnvOrDefault("SMTP_HOST", "smtp.gmail.com"),
@@ -121,4 +146,17 @@ func (es *EmailService) SendSupportEmail(name, email, message string) error {
 	}
 
 	return nil
+}
+
+// SendSupportEmailAsync sends email asynchronously in a goroutine
+// This allows the HTTP handler to return immediately without waiting for SMTP
+// Errors are logged but not returned to the caller
+func (es *EmailService) SendSupportEmailAsync(name, email, message string) {
+	go func() {
+		if err := es.SendSupportEmail(name, email, message); err != nil {
+			log.Printf("event=async_email_error name=%s email=%s err=%v", name, email, err)
+		} else {
+			log.Printf("event=async_email_sent name=%s email=%s", name, email)
+		}
+	}()
 }
