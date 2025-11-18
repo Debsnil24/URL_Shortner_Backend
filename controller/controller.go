@@ -19,6 +19,7 @@ type URLSummary struct {
 	UpdatedAt          time.Time
 	ExpiresAt          *time.Time
 	TotalVisits        int64
+	UniqueVisitors     int64
 	LastVisitAt        *time.Time
 	LastVisitUserAgent *string
 }
@@ -29,6 +30,7 @@ type URLStats struct {
 	OriginalURL        string
 	ClickCount         int
 	TotalVisits        int64
+	UniqueVisitors     int64
 	LastVisitAt        *time.Time
 	LastVisitUserAgent string
 }
@@ -110,6 +112,11 @@ func (c *URLController) ListURLsByUser(userID uuid.UUID) ([]URLSummary, error) {
 			visitCount = 0 // Continue even if count fails
 		}
 
+		uniqueVisitors, err := c.GetUniqueVisitorCount(urlRecord.ID)
+		if err != nil {
+			uniqueVisitors = 0 // Continue even if count fails
+		}
+
 		latestVisit, err := c.GetLatestVisit(urlRecord.ID)
 		var lastVisitAt *time.Time
 		var lastVisitUserAgent *string
@@ -127,6 +134,7 @@ func (c *URLController) ListURLsByUser(userID uuid.UUID) ([]URLSummary, error) {
 			UpdatedAt:          urlRecord.UpdatedAt,
 			ExpiresAt:          urlRecord.ExpiresAt,
 			TotalVisits:        visitCount,
+			UniqueVisitors:     uniqueVisitors,
 			LastVisitAt:        lastVisitAt,
 			LastVisitUserAgent: lastVisitUserAgent,
 		})
@@ -180,6 +188,20 @@ func (c *URLController) GetVisitCount(urlID uint) (int64, error) {
 	return count, nil
 }
 
+// GetUniqueVisitorCount returns the number of unique visitors (distinct IP addresses) for a URL
+func (c *URLController) GetUniqueVisitorCount(urlID uint) (int64, error) {
+	var count int64
+	// Count distinct IP addresses for this URL using PostgreSQL-compatible query
+	// Using Select with Distinct and Count for better compatibility
+	if err := c.DB.Model(&models.URLVisit{}).
+		Where("url_id = ?", urlID).
+		Select("COUNT(DISTINCT ip_address)").
+		Scan(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // GetLatestVisit returns the most recent visit for a URL
 func (c *URLController) GetLatestVisit(urlID uint) (*models.URLVisit, error) {
 	var visit models.URLVisit
@@ -211,6 +233,11 @@ func (c *URLController) GetURLStats(code string, userID uuid.UUID) (*URLStats, e
 		return nil, err
 	}
 
+	uniqueVisitors, err := c.GetUniqueVisitorCount(urlRecord.ID)
+	if err != nil {
+		return nil, err
+	}
+
 	latestVisit, err := c.GetLatestVisit(urlRecord.ID)
 	var lastVisitAt *time.Time
 	var lastVisitUserAgent string
@@ -224,6 +251,7 @@ func (c *URLController) GetURLStats(code string, userID uuid.UUID) (*URLStats, e
 		OriginalURL:        urlRecord.OriginalURL,
 		ClickCount:         urlRecord.ClickCount,
 		TotalVisits:        visitCount,
+		UniqueVisitors:     uniqueVisitors,
 		LastVisitAt:        lastVisitAt,
 		LastVisitUserAgent: lastVisitUserAgent,
 	}, nil
