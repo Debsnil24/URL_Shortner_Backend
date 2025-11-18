@@ -126,10 +126,20 @@ func (c *URLController) ListURLsByUser(userID uuid.UUID) ([]URLSummary, error) {
 			lastVisitUserAgent = &ua
 		}
 
+		// Use TotalVisits as the source of truth for click count to ensure consistency
+		// TotalVisits is the actual count from url_visits table, which is more reliable
+		// If visitCount doesn't match ClickCount, prefer visitCount (the actual data)
+		displayClickCount := int(visitCount)
+		if displayClickCount == 0 && urlRecord.ClickCount > 0 {
+			// Fallback to stored click_count if visitCount is 0 but click_count exists
+			// This handles edge cases where visits table might be empty
+			displayClickCount = urlRecord.ClickCount
+		}
+
 		summaries = append(summaries, URLSummary{
 			ShortCode:          urlRecord.ShortCode,
 			OriginalURL:        urlRecord.OriginalURL,
-			ClickCount:         urlRecord.ClickCount,
+			ClickCount:         displayClickCount, // Use TotalVisits as source of truth
 			CreatedAt:          urlRecord.CreatedAt,
 			UpdatedAt:          urlRecord.UpdatedAt,
 			ExpiresAt:          urlRecord.ExpiresAt,
@@ -177,6 +187,30 @@ func (c *URLController) RecordVisit(urlID uint, ipAddress, userAgent string) err
 		UserAgent: userAgent,
 	}
 	return c.DB.Create(&visit).Error
+}
+
+// RecordVisitAndIncrement atomically records a visit and increments the click count
+// This ensures both operations succeed or fail together, preventing data inconsistency
+func (c *URLController) RecordVisitAndIncrement(urlID uint, ipAddress, userAgent string) error {
+	// Use a transaction to ensure atomicity
+	return c.DB.Transaction(func(tx *gorm.DB) error {
+		// First, create the visit record
+		visit := models.URLVisit{
+			URLID:     urlID,
+			IPAddress: ipAddress,
+			UserAgent: userAgent,
+		}
+		if err := tx.Create(&visit).Error; err != nil {
+			return err
+		}
+
+		// Then, increment the click count
+		if err := tx.Model(&models.URL{}).Where("id = ?", urlID).UpdateColumn("click_count", gorm.Expr("click_count + ?", 1)).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
 }
 
 // GetVisitCount returns the total number of visits for a URL
@@ -246,10 +280,19 @@ func (c *URLController) GetURLStats(code string, userID uuid.UUID) (*URLStats, e
 		lastVisitUserAgent = latestVisit.UserAgent
 	}
 
+	// Use TotalVisits as the source of truth for click count to ensure consistency
+	// TotalVisits is the actual count from url_visits table, which is more reliable
+	displayClickCount := int(visitCount)
+	if displayClickCount == 0 && urlRecord.ClickCount > 0 {
+		// Fallback to stored click_count if visitCount is 0 but click_count exists
+		// This handles edge cases where visits table might be empty
+		displayClickCount = urlRecord.ClickCount
+	}
+
 	return &URLStats{
 		ShortCode:          urlRecord.ShortCode,
 		OriginalURL:        urlRecord.OriginalURL,
-		ClickCount:         urlRecord.ClickCount,
+		ClickCount:         displayClickCount, // Use TotalVisits as source of truth
 		TotalVisits:        visitCount,
 		UniqueVisitors:     uniqueVisitors,
 		LastVisitAt:        lastVisitAt,

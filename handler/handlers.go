@@ -212,13 +212,11 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 		return
 	}
 
-	// Use controller methods to record the visit
-	if err := h.urlController.IncrementClickCount(urlRecord.ID); err != nil {
-		log.Printf("event=redirect_error code=%s reason=click_increment_failed err=%v", code, err)
-	}
-
-	if err := h.urlController.RecordVisit(urlRecord.ID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
-		log.Printf("event=redirect_error code=%s reason=visit_create_failed err=%v", code, err)
+	// Use atomic method to record visit and increment click count together
+	// This ensures both operations succeed or fail together, preventing data inconsistency
+	if err := h.urlController.RecordVisitAndIncrement(urlRecord.ID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
+		log.Printf("event=redirect_error code=%s reason=visit_record_failed err=%v", code, err)
+		// Continue with redirect even if recording fails - don't block user experience
 	}
 
 	log.Printf("event=redirect_success code=%s url=%s", code, urlRecord.OriginalURL)
