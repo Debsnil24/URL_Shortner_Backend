@@ -10,7 +10,6 @@ type ShortenURLResponse struct {
 	ShortCode    string `json:"short_code"`
 }
 
-
 // Authentication Request DTOs
 type RegisterRequest struct {
 	Email     string `json:"email" binding:"required,email"`
@@ -37,7 +36,7 @@ type AuthResponse struct {
 }
 
 type AuthData struct {
-	User  *User `json:"user"`
+	User  *User  `json:"user"`
 	Token string `json:"token"`
 }
 
@@ -55,8 +54,21 @@ type UpdateProfileRequest struct {
 }
 
 type UserProfileResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-	Data    *User  `json:"data,omitempty"`
+	Success bool       `json:"success"`
+	Message string     `json:"message"`
+	Data    *User      `json:"data,omitempty"`
+	Error   *AuthError `json:"error,omitempty"`
+}
+
+// Support Request DTOs
+type SupportRequest struct {
+	Name    string `json:"name" binding:"required,min=1,max=100"`
+	Email   string `json:"email" binding:"required,email,max=255"`
+	Message string `json:"message" binding:"required,min=1,max=5000"`
+}
+
+type SupportResponse struct {
+	Success bool       `json:"success"`
+	Message string     `json:"message"`
 	Error   *AuthError `json:"error,omitempty"`
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/Debsnil24/URL_Shortner.git/controller"
 	"github.com/Debsnil24/URL_Shortner.git/models"
+	"github.com/Debsnil24/URL_Shortner.git/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -17,12 +18,14 @@ import (
 type Handler struct {
 	urlController *controller.URLController
 	auth          *AuthHandler
+	emailService  *service.EmailService
 }
 
 func NewHandler(db *gorm.DB) *Handler {
 	return &Handler{
 		urlController: controller.NewURLController(db),
 		auth:          NewAuthHandler(db),
+		emailService:  service.GetEmailService(), // Use singleton email service
 	}
 }
 
@@ -253,6 +256,50 @@ func (h *Handler) GetURLStats(c *gin.Context) {
 		"total_visits":          stats.TotalVisits,
 		"last_visit_at":         stats.LastVisitAt,
 		"last_visit_user_agent": stats.LastVisitUserAgent,
+	})
+}
+
+func (h *Handler) SubmitSupport(c *gin.Context) {
+	var req models.SupportRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupportResponse{
+			Success: false,
+			Message: "Invalid request data",
+			Error: &models.AuthError{
+				Code:    "VALIDATION_ERROR",
+				Message: "Please check your input and try again.",
+			},
+		})
+		return
+	}
+
+	// Sanitize inputs: trim whitespace
+	req.Name = strings.TrimSpace(req.Name)
+	req.Email = strings.TrimSpace(req.Email)
+	req.Message = strings.TrimSpace(req.Message)
+
+	// Additional validation after trimming
+	if req.Name == "" || req.Email == "" || req.Message == "" {
+		c.JSON(http.StatusBadRequest, models.SupportResponse{
+			Success: false,
+			Message: "All fields are required",
+			Error: &models.AuthError{
+				Code:    "VALIDATION_ERROR",
+				Message: "Name, email, and message cannot be empty.",
+			},
+		})
+		return
+	}
+
+	// Send email asynchronously - don't block HTTP response
+	// This improves user experience as they get immediate feedback
+	h.emailService.SendSupportEmailAsync(req.Name, req.Email, req.Message)
+
+	log.Printf("event=support_request_submitted name=%s email=%s ip=%s", req.Name, req.Email, c.ClientIP())
+	c.JSON(http.StatusOK, models.SupportResponse{
+		Success: true,
+		Message: "Support request submitted successfully. We'll get back to you soon!",
 	})
 }
 
