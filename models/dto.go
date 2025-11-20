@@ -14,6 +14,12 @@ type CustomExpiration struct {
 	Minutes string `json:"minutes"` // "0" | "1" | ... | "59"
 }
 
+type UpdateURLRequest struct {
+	URL              string            `json:"url,omitempty"`               // Optional: only if URL changed
+	ExpirationPreset string            `json:"expiration_preset,omitempty"` // Optional: only if expiration changed
+	CustomExpiration *CustomExpiration `json:"custom_expiration,omitempty"` // Optional: only if custom expiration selected
+}
+
 type ShortenURLResponse struct {
 	ShortenedURL string `json:"shortened_url"`
 	OriginalURL  string `json:"original_url"`

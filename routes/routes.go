@@ -30,6 +30,7 @@ func RegisterRoutes(router *gin.Engine) {
 		api.POST("/shorten", middleware.AuthRequired(), h.ShortenURL)
 		api.GET("/urls", middleware.AuthRequired(), h.ListURLs)
 		api.GET("/urls/:code/stats", middleware.AuthRequired(), h.GetURLStats)
+		api.PATCH("/urls/:code", middleware.AuthRequired(), h.UpdateURL)
 		api.DELETE("/delete/:code", middleware.AuthRequired(), h.DeleteURL)
 		// Support endpoint with rate limiting and timeout
 		api.POST("/support", middleware.RateLimit(), middleware.RequestTimeout(30*time.Second), h.SubmitSupport)

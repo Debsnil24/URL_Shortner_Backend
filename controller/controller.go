@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Debsnil24/URL_Shortner.git/models"
@@ -268,6 +269,87 @@ func (c *URLController) DeleteURL(code string, userID uuid.UUID) error {
 	}
 
 	return nil
+}
+
+// UpdateURL updates a URL's original URL and/or expiration date
+func (c *URLController) UpdateURL(code string, userID uuid.UUID, req *models.UpdateURLRequest) (*models.URL, error) {
+	// Get existing URL
+	var urlRecord models.URL
+	if err := c.DB.Where("short_code = ?", code).First(&urlRecord).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("URL not found")
+		}
+		return nil, err
+	}
+
+	// Check ownership
+	if urlRecord.UserID != userID {
+		return nil, errors.New("permission denied")
+	}
+
+	// Check if at least one field is provided
+	hasURLUpdate := strings.TrimSpace(req.URL) != ""
+	hasExpirationUpdate := req.ExpirationPreset != "" || req.CustomExpiration != nil
+	hasBothExpiration := req.ExpirationPreset != "" && req.CustomExpiration != nil
+
+	if !hasURLUpdate && !hasExpirationUpdate {
+		return nil, errors.New("at least one field (url, expiration_preset, or custom_expiration) must be provided")
+	}
+
+	if hasBothExpiration {
+		return nil, errors.New("cannot provide both expiration_preset and custom_expiration. Use only one")
+	}
+
+	now := time.Now()
+
+	// Check if link is expired (expires_at has passed)
+	isExpired := urlRecord.ExpiresAt != nil && (urlRecord.ExpiresAt.Before(now) || urlRecord.ExpiresAt.Equal(now))
+
+	// Special case: Expired link handling
+	if isExpired {
+		// If expired and only URL is being updated (no expiration update), return 410
+		if hasURLUpdate && !hasExpirationUpdate {
+			return nil, errors.New("cannot update URL of expired link. Update expiration to reactivate it")
+		}
+		// If expired and expiration is being updated, allow it (reactivation)
+	}
+
+	// Validate and update URL
+	if hasURLUpdate {
+		newURL := strings.TrimSpace(req.URL)
+		if newURL == "" {
+			return nil, errors.New("url cannot be empty")
+		}
+		// Ensure URL starts with http:// or https://
+		if !strings.HasPrefix(newURL, "http://") && !strings.HasPrefix(newURL, "https://") {
+			newURL = "https://" + newURL
+		}
+		// Basic URL validation
+		if len(newURL) < 10 { // Very basic validation - should have at least "https://x.co"
+			return nil, errors.New("invalid URL format")
+		}
+		urlRecord.OriginalURL = newURL
+	}
+
+	// Validate and update expiration
+	if hasExpirationUpdate {
+		// Calculate new expiration date using the same logic as creation
+		newExpiresAt, err := c.CalculateExpiration(req.ExpirationPreset, req.CustomExpiration, now)
+		if err != nil {
+			return nil, err
+		}
+		urlRecord.ExpiresAt = newExpiresAt
+	}
+
+	// Update timestamp
+	urlRecord.UpdatedAt = now
+
+	// Save changes
+	if err := c.DB.Save(&urlRecord).Error; err != nil {
+		return nil, err
+	}
+
+	return &urlRecord, nil
 }
 
 // IncrementClickCount increments the click count for a URL

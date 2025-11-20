@@ -252,19 +252,115 @@ func (h *Handler) DeleteURL(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "URL deleted successfully"})
 }
 
+// UpdateURL godoc
+// @Summary      Update a short URL
+// @Description  Updates the original URL and/or expiration date of a shortened URL (only if owned by the authenticated user)
+// @Tags         urls
+// @Accept       json
+// @Produce      json
+// @Param        code  path      string  true  "Short code of the URL"
+// @Param        request  body      models.UpdateURLRequest  true  "Update request"
+// @Success      200      {object}  map[string]interface{}
+// @Failure      400      {object}  map[string]interface{}
+// @Failure      401      {object}  map[string]interface{}
+// @Failure      403      {object}  map[string]interface{}
+// @Failure      404      {object}  map[string]interface{}
+// @Failure      410      {object}  map[string]interface{}
+// @Failure      422      {object}  map[string]interface{}
+// @Failure      500      {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/urls/{code} [patch]
+func (h *Handler) UpdateURL(c *gin.Context) {
+	code := c.Param("code")
+
+	var req models.UpdateURLRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID, err := GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	urlRecord, err := h.urlController.UpdateURL(code, userID, &req)
+	if err != nil {
+		if err.Error() == "URL not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
+			return
+		}
+		if err.Error() == "permission denied" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to update this URL"})
+			return
+		}
+		if err.Error() == "cannot update URL of expired link. Update expiration to reactivate it" {
+			c.JSON(http.StatusGone, gin.H{"error": "Cannot update URL of expired link. Update expiration to reactivate it."})
+			return
+		}
+		if strings.Contains(err.Error(), "at least one field") ||
+			strings.Contains(err.Error(), "cannot provide both") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if strings.Contains(err.Error(), "must be between") ||
+			strings.Contains(err.Error(), "cannot exceed") ||
+			strings.Contains(err.Error(), "invalid expiration preset") ||
+			strings.Contains(err.Error(), "must be in the future") ||
+			strings.Contains(err.Error(), "invalid URL format") {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update URL"})
+		return
+	}
+
+	// Build response data
+	data := gin.H{
+		"short_code":   urlRecord.ShortCode,
+		"original_url": urlRecord.OriginalURL,
+		"click_count":  urlRecord.ClickCount,
+		"created_at":   urlRecord.CreatedAt,
+		"updated_at":   urlRecord.UpdatedAt,
+	}
+
+	// Include expires_at if it exists
+	now := time.Now()
+	if urlRecord.ExpiresAt != nil {
+		data["expires_at"] = urlRecord.ExpiresAt.Format(time.RFC3339)
+		// Determine status based on expiration
+		if urlRecord.ExpiresAt.Before(now) || urlRecord.ExpiresAt.Equal(now) {
+			data["status"] = "expired"
+		} else {
+			data["status"] = "active"
+		}
+	} else {
+		data["status"] = "active"
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "URL updated successfully",
+		"data":    data,
+	})
+}
+
 // RedirectURL godoc
 // @Summary      Redirect to original URL
-// @Description  Redirects to the original URL associated with the short code
+// @Description  Redirects to the original URL associated with the short code. Supports both GET and HEAD methods. GET requests count as clicks and redirect, while HEAD requests only check status and do not count as clicks.
 // @Tags         public
 // @Accept       json
 // @Produce      json
 // @Param        code  path      string  true  "Short code"
-// @Success      302   {string}  string  "Redirect"
+// @Success      200   {string}  string  "HEAD request - Status check only (no click counted)"
+// @Success      302   {string}  string  "GET request - Redirect (click counted)"
 // @Failure      400   {object}  map[string]interface{}
 // @Failure      404   {object}  map[string]interface{}
 // @Failure      410   {object}  map[string]interface{}
 // @Failure      500   {object}  map[string]interface{}
 // @Router       /{code} [get]
+// @Router       /{code} [head]
 func (h *Handler) RedirectURL(c *gin.Context) {
 	code := c.Param("code")
 
@@ -308,6 +404,15 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 		}
 	}
 
+	// Handle HEAD requests - just return status, don't count as click or redirect
+	// HEAD is used for link status checks by frontend
+	if c.Request.Method == "HEAD" {
+		c.Header("Location", urlRecord.OriginalURL)
+		c.Status(http.StatusOK)
+		return
+	}
+
+	// Only count GET requests as clicks (not HEAD requests)
 	// Use atomic method to record visit and increment click count together
 	// This ensures both operations succeed or fail together, preventing data inconsistency
 	if err := h.urlController.RecordVisitAndIncrement(urlRecord.ID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
