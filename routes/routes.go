@@ -12,8 +12,17 @@ import (
 func RegisterRoutes(router *gin.Engine) {
 	h := handler.NewHandler(config.DB)
 
-	// Public redirect route
-	router.GET("/:code", h.RedirectURL)
+	// Swagger token endpoint (protected, returns token for Swagger UI)
+	// Using /api/swagger-token to avoid conflict with /swagger/*any catch-all route
+	// Uses SwaggerAuthRequired to check for swagger_auth_token cookie (separate from frontend)
+	router.GET("/api/swagger-token", middleware.SwaggerAuthRequired(), middleware.SwaggerTokenEndpoint())
+
+	// Swagger UI routes (protected, requires Swagger-specific authentication)
+	// Must be registered BEFORE the /:code catch-all route
+	router.GET("/swagger", middleware.SwaggerAuthRequired(), func(c *gin.Context) {
+		c.Redirect(302, "/swagger/index.html")
+	})
+	router.GET("/swagger/*any", middleware.SwaggerAuthRequired(), handler.CustomSwaggerHandler())
 
 	api := router.Group("/api")
 	{
@@ -28,13 +37,18 @@ func RegisterRoutes(router *gin.Engine) {
 
 	auth := router.Group("/auth", middleware.RequestTimeout(1*time.Minute))
 	{
+		auth.GET("/login-page", handler.LoginPage()) // Backend login page for Swagger
 		auth.POST("/register", h.Register)
 		auth.POST("/login", h.Login)
-		auth.POST("/logout", h.Logout)
+		auth.POST("/logout", h.Logout)                // Handles both frontend and Swagger logout
+		auth.POST("/swagger-logout", h.SwaggerLogout) // Swagger-specific logout endpoint (no auth required)
 		auth.GET("/google", h.GoogleAuth)
 		auth.GET("/google/callback", h.GoogleCallback)
 		auth.GET("/me", middleware.AuthRequired(), h.Me)
 		// auth.POST("/refresh", h.Refresh)
 	}
+
+	// Public redirect route (MUST be last to avoid catching other routes like /swagger, /api, /auth)
+	router.GET("/:code", h.RedirectURL)
 
 }

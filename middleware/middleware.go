@@ -2,59 +2,38 @@ package middleware
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/Debsnil24/URL_Shortner.git/models"
-	"github.com/Debsnil24/URL_Shortner.git/util"
 	"github.com/gin-gonic/gin"
-	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 )
 
 // AuthRequired validates the JWT token from HttpOnly cookie and sets claims in context
 func AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// First try to get token from HttpOnly cookie
-		token, err := c.Cookie("auth_token")
-		if err != nil || token == "" {
-			// Fallback to Authorization header for backward compatibility
-			authHeader := c.GetHeader("Authorization")
-			if authHeader == "" || !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-				c.JSON(http.StatusUnauthorized, models.AuthResponse{Success: false, Error: &models.AuthError{Code: "AUTH_401", Message: "Missing or invalid authentication token"}})
-				c.Abort()
-				return
-			}
-			token = strings.TrimSpace(authHeader[len("Bearer "):])
-		}
-
-		claims, err := util.ValidateToken(token)
-		if err != nil {
-			// Help clients decide to logout by signaling token status
-			if errors.Is(err, jwt.ErrTokenExpired) {
-				c.Header("WWW-Authenticate", "Bearer error=\"invalid_token\", error_description=\"token expired\"")
-			} else {
-				c.Header("WWW-Authenticate", "Bearer error=\"invalid_token\", error_description=\"invalid token\"")
-			}
-			c.JSON(http.StatusUnauthorized, models.AuthResponse{Success: false, Error: &models.AuthError{Code: "AUTH_401", Message: "Invalid or expired token"}})
+		// Special handling for Swagger UI access - redirect to login page
+		if strings.HasPrefix(c.Request.URL.Path, "/swagger") {
+			encodedRedirect := buildEncodedRedirectURL(c)
+			c.Redirect(http.StatusTemporaryRedirect, "/auth/login-page?redirect="+encodedRedirect)
 			c.Abort()
 			return
 		}
 
-		// Parse userID from claims and set in context for easy access
-		userID, err := uuid.Parse(claims.UserID)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, models.AuthResponse{Success: false, Error: &models.AuthError{Code: "AUTH_401", Message: "Invalid user identity in token"}})
-			c.Abort()
-			return
+		config := authConfig{
+			cookieName:        "auth_token",
+			storeTokenInCtx:   false,
+			allowRedirects:    false, // Always return JSON errors
+			redirectLoginPath: "/auth/login-page",
 		}
-
-		// Set both claims and parsed userID in context
-		c.Set("claims", claims)
-		c.Set("userID", userID)
+		
+		_, _, ok := validateAuthToken(c, config)
+		if !ok {
+			return // Error already handled in validateAuthToken
+		}
+		
 		c.Next()
 	}
 }
@@ -192,5 +171,50 @@ func RequestTimeout(timeout time.Duration) gin.HandlerFunc {
 			}
 			return
 		}
+	}
+}
+
+// SwaggerTokenEndpoint godoc
+// @Summary      Get Swagger authentication token
+// @Description  Returns the JWT token from the Swagger authentication cookie. This endpoint is used internally by Swagger UI to automatically set the Bearer token. Requires Swagger-specific authentication (swagger_auth_token cookie).
+// @Tags         swagger
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  map[string]string  "Token object with 'token' field"
+// @Failure      401  {object}  models.AuthResponse
+// @Failure      500  {object}  models.AuthResponse
+// @Security     BearerAuth
+// @Router       /api/swagger-token [get]
+// SwaggerTokenEndpoint returns the JWT token from context (already validated by SwaggerAuthRequired middleware)
+// This endpoint is only accessible to authenticated users and is used by Swagger UI
+// to automatically set the Bearer token
+func SwaggerTokenEndpoint() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Get token from context (set by SwaggerAuthRequired middleware after validation)
+		token, exists := c.Get("token")
+		if !exists {
+			// This should never happen if SwaggerAuthRequired is properly configured
+			c.JSON(http.StatusInternalServerError, models.AuthResponse{
+				Success: false,
+				Error:   &models.AuthError{Code: "AUTH_500", Message: "Token not found in context"},
+			})
+			c.Abort()
+			return
+		}
+
+		tokenStr, ok := token.(string)
+		if !ok || tokenStr == "" {
+			c.JSON(http.StatusInternalServerError, models.AuthResponse{
+				Success: false,
+				Error:   &models.AuthError{Code: "AUTH_500", Message: "Invalid token in context"},
+			})
+			c.Abort()
+			return
+		}
+
+		// Return token in response (only for Swagger UI, authenticated users only)
+		c.JSON(http.StatusOK, gin.H{
+			"token": tokenStr,
+		})
 	}
 }
