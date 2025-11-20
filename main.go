@@ -5,10 +5,31 @@ import (
 
 	"github.com/Debsnil24/URL_Shortner.git/config"
 	"github.com/Debsnil24/URL_Shortner.git/routes"
+	_ "github.com/Debsnil24/URL_Shortner.git/swagger" // Swagger docs
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/go-gormigrate/gormigrate/v2"
 )
+
+// @title           URL Shortener API
+// @version         1.0
+// @description     A URL shortener service API with authentication and analytics
+// @termsOfService  https://sniply.co.in/terms
+
+// @contact.name   API Support
+// @contact.url    https://sniply.co.in/support
+// @contact.email  support@sniply.co.in
+
+// @license.name  MIT
+// @license.url   https://opensource.org/licenses/MIT
+
+// @host      localhost:8080
+// @BasePath  /
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and JWT token.
 
 func main() {
 	DB := config.InitDB()

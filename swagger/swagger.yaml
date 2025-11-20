@@ -1,0 +1,561 @@
+basePath: /
+definitions:
+  models.AuthData:
+    properties:
+      token:
+        type: string
+      user:
+        $ref: '#/definitions/models.User'
+    type: object
+  models.AuthError:
+    properties:
+      code:
+        type: string
+      details: {}
+      message:
+        type: string
+    type: object
+  models.AuthResponse:
+    properties:
+      data:
+        $ref: '#/definitions/models.AuthData'
+      error:
+        $ref: '#/definitions/models.AuthError'
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  models.LoginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  models.RegisterRequest:
+    properties:
+      email:
+        type: string
+      first_name:
+        type: string
+      last_name:
+        type: string
+      password:
+        minLength: 8
+        type: string
+    required:
+    - email
+    - first_name
+    - last_name
+    - password
+    type: object
+  models.ShortenURLRequest:
+    properties:
+      url:
+        type: string
+    required:
+    - url
+    type: object
+  models.SupportRequest:
+    properties:
+      email:
+        maxLength: 255
+        type: string
+      message:
+        maxLength: 5000
+        minLength: 1
+        type: string
+      name:
+        maxLength: 100
+        minLength: 1
+        type: string
+    required:
+    - email
+    - message
+    - name
+    type: object
+  models.SupportResponse:
+    properties:
+      error:
+        $ref: '#/definitions/models.AuthError'
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  models.User:
+    properties:
+      avatar_url:
+        type: string
+      created_at:
+        type: string
+      email:
+        type: string
+      email_verified:
+        type: boolean
+      first_name:
+        type: string
+      id:
+        type: string
+      is_active:
+        type: boolean
+      last_login:
+        type: string
+      last_name:
+        type: string
+      provider:
+        description: '''email'', ''google'', ''apple'''
+        type: string
+      provider_id:
+        description: OAuth provider's unique ID
+        type: string
+      updated_at:
+        type: string
+    type: object
+  models.UserProfileResponse:
+    properties:
+      data:
+        $ref: '#/definitions/models.User'
+      error:
+        $ref: '#/definitions/models.AuthError'
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@sniply.co.in
+    name: API Support
+    url: https://sniply.co.in/support
+  description: A URL shortener service API with authentication and analytics
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: https://sniply.co.in/terms
+  title: URL Shortener API
+  version: "1.0"
+paths:
+  /{code}:
+    get:
+      consumes:
+      - application/json
+      description: Redirects to the original URL associated with the short code
+      parameters:
+      - description: Short code
+        in: path
+        name: code
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "302":
+          description: Redirect
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "410":
+          description: Gone
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Redirect to original URL
+      tags:
+      - public
+  /api/delete/{code}:
+    delete:
+      consumes:
+      - application/json
+      description: Deletes a shortened URL by its code (only if owned by the authenticated
+        user)
+      parameters:
+      - description: Short code of the URL
+        in: path
+        name: code
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete a URL
+      tags:
+      - urls
+  /api/shorten:
+    post:
+      consumes:
+      - application/json
+      description: Creates a shortened URL from a long URL
+      parameters:
+      - description: URL to shorten
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.ShortenURLRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Shorten a URL
+      tags:
+      - urls
+  /api/support:
+    post:
+      consumes:
+      - application/json
+      description: Submits a support request with rate limiting
+      parameters:
+      - description: Support request details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.SupportRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SupportResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.SupportResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Submit support request
+      tags:
+      - support
+  /api/test:
+    get:
+      consumes:
+      - application/json
+      description: Returns the count of tables in the database
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Test database connection
+      tags:
+      - test
+  /api/urls:
+    get:
+      consumes:
+      - application/json
+      description: Returns all shortened URLs created by the authenticated user with
+        statistics
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List user's URLs
+      tags:
+      - urls
+  /api/urls/{code}/stats:
+    get:
+      consumes:
+      - application/json
+      description: Returns detailed statistics for a shortened URL (only if owned
+        by the authenticated user)
+      parameters:
+      - description: Short code of the URL
+        in: path
+        name: code
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get URL statistics
+      tags:
+      - urls
+  /auth/google:
+    get:
+      consumes:
+      - application/json
+      description: Redirects to Google OAuth consent screen
+      produces:
+      - application/json
+      responses:
+        "307":
+          description: Redirect to Google
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+      summary: Initiate Google OAuth
+      tags:
+      - auth
+  /auth/google/callback:
+    get:
+      consumes:
+      - application/json
+      description: Handles the OAuth callback from Google and creates/updates user
+      parameters:
+      - description: Authorization code from Google
+        in: query
+        name: code
+        required: true
+        type: string
+      - description: State parameter for CSRF protection
+        in: query
+        name: state
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "307":
+          description: Redirect to frontend with error
+          schema:
+            type: string
+      summary: Google OAuth callback
+      tags:
+      - auth
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticates a user with email and password. JWT token is set
+        in HttpOnly cookie only (not returned in response body for security). For
+        API clients, use cookie-based authentication or implement a separate token
+        endpoint.
+      parameters:
+      - description: Login credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+      summary: Login user
+      tags:
+      - auth
+  /auth/logout:
+    post:
+      consumes:
+      - application/json
+      description: Clears the authentication cookie and logs out the user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+      summary: Logout user
+      tags:
+      - auth
+  /auth/me:
+    get:
+      consumes:
+      - application/json
+      description: Returns the authenticated user's profile information
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.UserProfileResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+      security:
+      - BearerAuth: []
+      summary: Get current user profile
+      tags:
+      - auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      description: Creates a new user account with email and password. JWT token is
+        set in HttpOnly cookie only (not returned in response body for security).
+        For API clients, use cookie-based authentication or implement a separate token
+        endpoint.
+      parameters:
+      - description: Registration details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+      summary: Register a new user
+      tags:
+      - auth
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer" followed by a space and JWT token.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

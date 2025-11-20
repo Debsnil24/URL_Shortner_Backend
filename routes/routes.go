@@ -7,10 +7,15 @@ import (
 	"github.com/Debsnil24/URL_Shortner.git/handler"
 	"github.com/Debsnil24/URL_Shortner.git/middleware"
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 func RegisterRoutes(router *gin.Engine) {
 	h := handler.NewHandler(config.DB)
+
+	// Swagger UI route
+	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// Public redirect route
 	router.GET("/:code", h.RedirectURL)

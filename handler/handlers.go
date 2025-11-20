@@ -45,6 +45,15 @@ func GetUserIDFromContext(c *gin.Context) (uuid.UUID, error) {
 	return userID, nil
 }
 
+// TestHandler godoc
+// @Summary      Test database connection
+// @Description  Returns the count of tables in the database
+// @Tags         test
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Router       /api/test [get]
 func (h *Handler) TestHandler(c *gin.Context) {
 	var count int
 
@@ -66,6 +75,19 @@ func (h *Handler) TestHandler(c *gin.Context) {
 	})
 }
 
+// ShortenURL godoc
+// @Summary      Shorten a URL
+// @Description  Creates a shortened URL from a long URL
+// @Tags         urls
+// @Accept       json
+// @Produce      json
+// @Param        request  body      models.ShortenURLRequest  true  "URL to shorten"
+// @Success      200      {object}  map[string]interface{}
+// @Failure      400      {object}  map[string]interface{}
+// @Failure      401      {object}  map[string]interface{}
+// @Failure      500      {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/shorten [post]
 func (h *Handler) ShortenURL(c *gin.Context) {
 	var req models.ShortenURLRequest
 
@@ -103,6 +125,17 @@ func (h *Handler) ShortenURL(c *gin.Context) {
 	})
 }
 
+// ListURLs godoc
+// @Summary      List user's URLs
+// @Description  Returns all shortened URLs created by the authenticated user with statistics
+// @Tags         urls
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/urls [get]
 func (h *Handler) ListURLs(c *gin.Context) {
 	// Get userID from context (set by AuthRequired middleware)
 	userID, err := GetUserIDFromContext(c)
@@ -156,6 +189,20 @@ func (h *Handler) ListURLs(c *gin.Context) {
 	})
 }
 
+// DeleteURL godoc
+// @Summary      Delete a URL
+// @Description  Deletes a shortened URL by its code (only if owned by the authenticated user)
+// @Tags         urls
+// @Accept       json
+// @Produce      json
+// @Param        code  path      string  true  "Short code of the URL"
+// @Success      200   {object}  map[string]interface{}
+// @Failure      401   {object}  map[string]interface{}
+// @Failure      403   {object}  map[string]interface{}
+// @Failure      404   {object}  map[string]interface{}
+// @Failure      500   {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/delete/{code} [delete]
 func (h *Handler) DeleteURL(c *gin.Context) {
 	code := c.Param("code")
 
@@ -184,6 +231,19 @@ func (h *Handler) DeleteURL(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "URL deleted successfully"})
 }
 
+// RedirectURL godoc
+// @Summary      Redirect to original URL
+// @Description  Redirects to the original URL associated with the short code
+// @Tags         public
+// @Accept       json
+// @Produce      json
+// @Param        code  path      string  true  "Short code"
+// @Success      302   {string}  string  "Redirect"
+// @Failure      400   {object}  map[string]interface{}
+// @Failure      404   {object}  map[string]interface{}
+// @Failure      410   {object}  map[string]interface{}
+// @Failure      500   {object}  map[string]interface{}
+// @Router       /{code} [get]
 func (h *Handler) RedirectURL(c *gin.Context) {
 	code := c.Param("code")
 
@@ -223,6 +283,20 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 	c.Redirect(http.StatusFound, urlRecord.OriginalURL)
 }
 
+// GetURLStats godoc
+// @Summary      Get URL statistics
+// @Description  Returns detailed statistics for a shortened URL (only if owned by the authenticated user)
+// @Tags         urls
+// @Accept       json
+// @Produce      json
+// @Param        code  path      string  true  "Short code of the URL"
+// @Success      200   {object}  map[string]interface{}
+// @Failure      401   {object}  map[string]interface{}
+// @Failure      403   {object}  map[string]interface{}
+// @Failure      404   {object}  map[string]interface{}
+// @Failure      500   {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/urls/{code}/stats [get]
 func (h *Handler) GetURLStats(c *gin.Context) {
 	code := c.Param("code")
 
@@ -260,6 +334,17 @@ func (h *Handler) GetURLStats(c *gin.Context) {
 	})
 }
 
+// SubmitSupport godoc
+// @Summary      Submit support request
+// @Description  Submits a support request with rate limiting
+// @Tags         support
+// @Accept       json
+// @Produce      json
+// @Param        request  body      models.SupportRequest  true  "Support request details"
+// @Success      200      {object}  models.SupportResponse
+// @Failure      400      {object}  models.SupportResponse
+// @Failure      429      {object}  map[string]interface{}
+// @Router       /api/support [post]
 func (h *Handler) SubmitSupport(c *gin.Context) {
 	var req models.SupportRequest
 

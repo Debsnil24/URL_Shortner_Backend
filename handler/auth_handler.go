@@ -80,6 +80,18 @@ func (h *AuthHandler) setAuthCookie(c *gin.Context, token string) {
 		}()))
 }
 
+// Register godoc
+// @Summary      Register a new user
+// @Description  Creates a new user account with email and password. JWT token is set in HttpOnly cookie only (not returned in response body for security). For API clients, use cookie-based authentication or implement a separate token endpoint.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request  body      models.RegisterRequest  true  "Registration details"
+// @Success      201      {object}  models.AuthResponse
+// @Failure      400      {object}  models.AuthResponse
+// @Failure      409      {object}  models.AuthResponse
+// @Failure      500      {object}  models.AuthResponse
+// @Router       /auth/register [post]
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req models.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -108,13 +120,25 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	// Set HttpOnly cookie with JWT token
 	if resp.Success && resp.Data != nil && resp.Data.Token != "" {
 		h.setAuthCookie(c, resp.Data.Token)
-		// Remove token from response for security
+		// Remove token from response for security - tokens are only in HttpOnly cookies
 		resp.Data.Token = ""
 	}
 
 	c.JSON(http.StatusCreated, resp)
 }
 
+// Login godoc
+// @Summary      Login user
+// @Description  Authenticates a user with email and password. JWT token is set in HttpOnly cookie only (not returned in response body for security). For API clients, use cookie-based authentication or implement a separate token endpoint.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request  body      models.LoginRequest  true  "Login credentials"
+// @Success      200      {object}  models.AuthResponse
+// @Failure      400      {object}  models.AuthResponse
+// @Failure      401      {object}  models.AuthResponse
+// @Failure      500      {object}  models.AuthResponse
+// @Router       /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req models.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -136,13 +160,22 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	// Set HttpOnly cookie with JWT token
 	if resp.Success && resp.Data != nil && resp.Data.Token != "" {
 		h.setAuthCookie(c, resp.Data.Token)
-		// Remove token from response for security
+		// Remove token from response for security - tokens are only in HttpOnly cookies
 		resp.Data.Token = ""
 	}
 
 	c.JSON(http.StatusOK, resp)
 }
 
+// GoogleAuth godoc
+// @Summary      Initiate Google OAuth
+// @Description  Redirects to Google OAuth consent screen
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Success      307  {string}  string  "Redirect to Google"
+// @Failure      500  {object}  models.AuthResponse
+// @Router       /auth/google [get]
 // Google OAuth
 func (h *AuthHandler) GoogleAuth(c *gin.Context) {
 	// Generate a secure random state
@@ -172,6 +205,17 @@ func (h *AuthHandler) GoogleAuth(c *gin.Context) {
 	c.Redirect(http.StatusTemporaryRedirect, url)
 }
 
+// GoogleCallback godoc
+// @Summary      Google OAuth callback
+// @Description  Handles the OAuth callback from Google and creates/updates user
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        code   query     string  true  "Authorization code from Google"
+// @Param        state  query     string  true  "State parameter for CSRF protection"
+// @Success      307    {string}  string  "Redirect to frontend"
+// @Failure      307    {string}  string  "Redirect to frontend with error"
+// @Router       /auth/google/callback [get]
 func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 	// Get frontend URL for redirects
 	frontendURL := os.Getenv("FRONTEND_URL")
@@ -341,6 +385,17 @@ func (h *AuthHandler) TestJWT(c *gin.Context) {
 	})
 }
 
+// Me godoc
+// @Summary      Get current user profile
+// @Description  Returns the authenticated user's profile information
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  models.UserProfileResponse
+// @Failure      401  {object}  models.AuthResponse
+// @Failure      500  {object}  models.AuthResponse
+// @Security     BearerAuth
+// @Router       /auth/me [get]
 // Me returns the authenticated user's profile based on JWT claims in context
 func (h *AuthHandler) Me(c *gin.Context) {
 	// Get userID from context (set by AuthRequired middleware)
@@ -367,6 +422,14 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	})
 }
 
+// Logout godoc
+// @Summary      Logout user
+// @Description  Clears the authentication cookie and logs out the user
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  models.AuthResponse
+// @Router       /auth/logout [post]
 // Logout clears the authentication cookie
 func (h *AuthHandler) Logout(c *gin.Context) {
 	// Clear the auth cookie by setting it to expire immediately
