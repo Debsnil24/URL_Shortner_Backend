@@ -42,6 +42,17 @@ func NewAuthHandler(db *gorm.DB) *AuthHandler {
 
 // setAuthCookie sets a secure HttpOnly cookie with the JWT token
 func (h *AuthHandler) setAuthCookie(c *gin.Context, token string) {
+	h.setCookieWithName(c, token, "auth_token")
+}
+
+// setSwaggerCookie sets a separate HttpOnly cookie for Swagger authentication
+// This keeps Swagger login separate from frontend login
+func (h *AuthHandler) setSwaggerCookie(c *gin.Context, token string) {
+	h.setCookieWithName(c, token, "swagger_auth_token")
+}
+
+// setCookieWithName is a helper to set cookies with a specific name
+func (h *AuthHandler) setCookieWithName(c *gin.Context, token string, cookieName string) {
 	// Check if we're in production (HTTPS)
 	isProduction := os.Getenv("ENV") == "production"
 
@@ -54,30 +65,25 @@ func (h *AuthHandler) setAuthCookie(c *gin.Context, token string) {
 	// For OAuth flows, we need to be more permissive with SameSite
 	// Set SameSite=Lax to allow OAuth redirects
 	sameSite := "Lax"
-	if isProduction {
-		sameSite = "Lax" // Use Lax for production too to allow OAuth
+
+	// Build cookie string with all attributes
+	cookieValue := fmt.Sprintf("%s=%s; Path=/; Max-Age=3600; HttpOnly; SameSite=%s",
+		cookieName,
+		token,
+		sameSite)
+
+	// Add domain if specified
+	if domain != "" {
+		cookieValue += fmt.Sprintf("; Domain=%s", domain)
 	}
 
-	c.SetCookie(
-		"auth_token", // name
-		token,        // value
-		3600,         // maxAge (1 hour)
-		"/",          // path
-		domain,       // domain (set for subdomain sharing)
-		isProduction, // secure (HTTPS only in production)
-		true,         // httpOnly (prevents XSS)
-	)
+	// Add Secure flag in production (HTTPS only)
+	if isProduction {
+		cookieValue += "; Secure"
+	}
 
-	// Set SameSite attribute manually since gin doesn't support it directly
-	c.Header("Set-Cookie", fmt.Sprintf("auth_token=%s; Path=/; Max-Age=3600; HttpOnly; SameSite=%s%s",
-		token,
-		sameSite,
-		func() string {
-			if isProduction {
-				return "; Secure"
-			}
-			return ""
-		}()))
+	// Set cookie using manual header (allows SameSite attribute)
+	c.Header("Set-Cookie", cookieValue)
 }
 
 // Register godoc
@@ -159,7 +165,18 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// Set HttpOnly cookie with JWT token
 	if resp.Success && resp.Data != nil && resp.Data.Token != "" {
-		h.setAuthCookie(c, resp.Data.Token)
+		// Check if this is a Swagger login (from login page or query param)
+		isSwaggerLogin := c.Query("swagger") == "true" ||
+			c.GetHeader("X-Swagger-Login") == "true" ||
+			strings.Contains(c.GetHeader("Referer"), "/auth/login-page")
+
+		if isSwaggerLogin {
+			// Use separate cookie for Swagger to keep it isolated from frontend
+			h.setSwaggerCookie(c, resp.Data.Token)
+		} else {
+			// Regular frontend login
+			h.setAuthCookie(c, resp.Data.Token)
+		}
 		// Remove token from response for security - tokens are only in HttpOnly cookies
 		resp.Data.Token = ""
 	}
@@ -239,8 +256,19 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 	// Validate state parameter to prevent CSRF attacks
 	receivedState := c.Query("state")
 	storedState, err := c.Cookie("oauth_state")
-	if err != nil || receivedState == "" || receivedState != storedState {
-		c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/?error=invalid_state&error_description=Invalid or missing state parameter", frontendURL))
+	if err != nil {
+		// Cookie not found or error reading cookie
+		c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/?error=invalid_state&error_description=State cookie not found", frontendURL))
+		return
+	}
+	if receivedState == "" {
+		// State parameter missing from callback
+		c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/?error=invalid_state&error_description=Missing state parameter", frontendURL))
+		return
+	}
+	if receivedState != storedState {
+		// State mismatch - possible CSRF attack
+		c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/?error=invalid_state&error_description=State mismatch", frontendURL))
 		return
 	}
 
@@ -261,11 +289,17 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 
 	client := config.GoogleOAuthConfig.Client(c, token)
 	resp, err := client.Get("https://openidconnect.googleapis.com/v1/userinfo")
-	if err != nil || resp.StatusCode != http.StatusOK {
-		c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/?error=profile_fetch_failed&error_description=Failed to fetch user profile", frontendURL))
+	if err != nil {
+		// Network error or request failed
+		c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/?error=profile_fetch_failed&error_description=Network error while fetching user profile: %v", frontendURL, err))
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		// HTTP error status from Google API
+		c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/?error=profile_fetch_failed&error_description=Failed to fetch user profile (HTTP %d)", frontendURL, resp.StatusCode))
+		return
+	}
 
 	var gu struct {
 		Sub           string `json:"sub"`
@@ -432,19 +466,61 @@ func (h *AuthHandler) Me(c *gin.Context) {
 // @Router       /auth/logout [post]
 // Logout clears the authentication cookie
 func (h *AuthHandler) Logout(c *gin.Context) {
-	// Clear the auth cookie by setting it to expire immediately
-	c.SetCookie(
-		"auth_token", // name
-		"",           // value (empty)
-		-1,           // maxAge (expire immediately)
-		"/",          // path
-		"",           // domain
-		false,        // secure (not needed for clearing)
-		true,         // httpOnly
-	)
+	// Check if this is a Swagger logout
+	isSwaggerLogout := c.Query("swagger") == "true" ||
+		c.GetHeader("X-Swagger-Logout") == "true" ||
+		strings.Contains(c.GetHeader("Referer"), "/swagger")
 
+	if isSwaggerLogout {
+		// Clear Swagger auth cookie
+		h.clearCookie(c, "swagger_auth_token")
+		c.JSON(http.StatusOK, models.AuthResponse{
+			Success: true,
+			Message: "Logged out from Swagger successfully",
+		})
+		return
+	}
+
+	// Clear the frontend auth cookie
+	h.clearCookie(c, "auth_token")
 	c.JSON(http.StatusOK, models.AuthResponse{
 		Success: true,
 		Message: "Logged out successfully",
 	})
+}
+
+// SwaggerLogout godoc
+// @Summary      Logout from Swagger UI
+// @Description  Clears the Swagger-specific authentication cookie (swagger_auth_token). This endpoint is used by Swagger UI's logout functionality. No authentication required.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  models.AuthResponse
+// @Router       /auth/swagger-logout [post]
+// SwaggerLogout clears only the Swagger authentication cookie
+func (h *AuthHandler) SwaggerLogout(c *gin.Context) {
+	h.clearCookie(c, "swagger_auth_token")
+	c.JSON(http.StatusOK, models.AuthResponse{
+		Success: true,
+		Message: "Logged out from Swagger successfully",
+	})
+}
+
+// clearCookie clears a cookie by setting it to expire immediately
+func (h *AuthHandler) clearCookie(c *gin.Context, cookieName string) {
+	isProduction := os.Getenv("ENV") == "production"
+	domain := os.Getenv("COOKIE_DOMAIN")
+	if domain == "" && isProduction {
+		domain = ".sniply.co.in"
+	}
+
+	c.SetCookie(
+		cookieName, // name
+		"",         // value (empty)
+		-1,         // maxAge (expire immediately)
+		"/",        // path
+		domain,     // domain
+		false,      // secure (not needed for clearing)
+		true,       // httpOnly
+	)
 }

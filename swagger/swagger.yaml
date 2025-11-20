@@ -298,6 +298,35 @@ paths:
       summary: Submit support request
       tags:
       - support
+  /api/swagger-token:
+    get:
+      consumes:
+      - application/json
+      description: Returns the JWT token from the Swagger authentication cookie. This
+        endpoint is used internally by Swagger UI to automatically set the Bearer
+        token. Requires Swagger-specific authentication (swagger_auth_token cookie).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Token object with 'token' field
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+      security:
+      - BearerAuth: []
+      summary: Get Swagger authentication token
+      tags:
+      - swagger
   /api/test:
     get:
       consumes:
@@ -550,6 +579,23 @@ paths:
           schema:
             $ref: '#/definitions/models.AuthResponse'
       summary: Register a new user
+      tags:
+      - auth
+  /auth/swagger-logout:
+    post:
+      consumes:
+      - application/json
+      description: Clears the Swagger-specific authentication cookie (swagger_auth_token).
+        This endpoint is used by Swagger UI's logout functionality. No authentication
+        required.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+      summary: Logout from Swagger UI
       tags:
       - auth
 securityDefinitions:

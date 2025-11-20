@@ -253,6 +253,15 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 		return
 	}
 
+	// Exclude reserved paths that should not be treated as short codes
+	reservedPaths := []string{"swagger", "api", "auth", "favicon.ico", "robots.txt"}
+	for _, reserved := range reservedPaths {
+		if code == reserved {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Short URL not found"})
+			return
+		}
+	}
+
 	// Use controller to get URL by code
 	urlRecord, err := h.urlController.GetURLByCode(code)
 	if err != nil {
@@ -393,6 +402,7 @@ func (h *Handler) SubmitSupport(c *gin.Context) {
 func (h *Handler) Register(c *gin.Context)       { h.auth.Register(c) }
 func (h *Handler) Login(c *gin.Context)          { h.auth.Login(c) }
 func (h *Handler) Logout(c *gin.Context)         { h.auth.Logout(c) }
+func (h *Handler) SwaggerLogout(c *gin.Context)  { h.auth.SwaggerLogout(c) }
 func (h *Handler) GoogleAuth(c *gin.Context)     { h.auth.GoogleAuth(c) }
 func (h *Handler) GoogleCallback(c *gin.Context) { h.auth.GoogleCallback(c) }
 func (h *Handler) OAuthStatus(c *gin.Context)    { h.auth.OAuthStatus(c) }

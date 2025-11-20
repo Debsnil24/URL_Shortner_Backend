@@ -198,6 +198,49 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/swagger-token": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the JWT token from the Swagger authentication cookie. This endpoint is used internally by Swagger UI to automatically set the Bearer token. Requires Swagger-specific authentication (swagger_auth_token cookie).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "swagger"
+                ],
+                "summary": "Get Swagger authentication token",
+                "responses": {
+                    "200": {
+                        "description": "Token object with 'token' field",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/models.AuthResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.AuthResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/test": {
             "get": {
                 "description": "Returns the count of tables in the database",
@@ -566,6 +609,29 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.AuthResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/swagger-logout": {
+            "post": {
+                "description": "Clears the Swagger-specific authentication cookie (swagger_auth_token). This endpoint is used by Swagger UI's logout functionality. No authentication required.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Logout from Swagger UI",
+                "responses": {
+                    "200": {
+                        "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/models.AuthResponse"
                         }
