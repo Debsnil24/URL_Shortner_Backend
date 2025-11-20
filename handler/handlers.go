@@ -108,9 +108,23 @@ func (h *Handler) ShortenURL(c *gin.Context) {
 		return
 	}
 
+	// Validate that both preset and custom_expiration are not provided simultaneously
+	if req.ExpirationPreset != "" && req.CustomExpiration != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot provide both expiration_preset and custom_expiration. Use only one."})
+		return
+	}
+
 	// Use controller to create shortened URL
-	urlRecord, err := h.urlController.GenerateShortCode(req.URL, userID)
+	urlRecord, err := h.urlController.GenerateShortCode(req.URL, userID, req.ExpirationPreset, req.CustomExpiration)
 	if err != nil {
+		// Check if it's a validation error (400) or calculation error (422)
+		if strings.Contains(err.Error(), "must be between") ||
+			strings.Contains(err.Error(), "cannot exceed") ||
+			strings.Contains(err.Error(), "invalid expiration preset") ||
+			strings.Contains(err.Error(), "must be in the future") {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create shortened URL"})
 		return
 	}
@@ -118,11 +132,18 @@ func (h *Handler) ShortenURL(c *gin.Context) {
 	// Return the shortened URL
 	shortened := "https://www.sniply.co.in/" + urlRecord.ShortCode
 
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"shortened_url": shortened,
 		"original_url":  req.URL,
 		"short_code":    urlRecord.ShortCode,
-	})
+	}
+
+	// Include expires_at in response if it exists
+	if urlRecord.ExpiresAt != nil {
+		response["expires_at"] = urlRecord.ExpiresAt.Format(time.RFC3339)
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // ListURLs godoc

@@ -2,6 +2,8 @@ package controller
 
 import (
 	"errors"
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/Debsnil24/URL_Shortner.git/models"
@@ -46,7 +48,96 @@ func NewURLController(db *gorm.DB) *URLController {
 	}
 }
 
-func (c *URLController) GenerateShortCode(originalURL string, userID uuid.UUID) (*models.URL, error) {
+// CalculateExpiration calculates the expiration date from preset or custom expiration
+func (c *URLController) CalculateExpiration(preset string, customExp *models.CustomExpiration, createdAt time.Time) (*time.Time, error) {
+	var expiresAt time.Time
+
+	// Priority: custom_expiration > expiration_preset > default (5 years)
+	if customExp != nil {
+		// Parse custom expiration values
+		years, err := strconv.Atoi(customExp.Years)
+		if err != nil || years < 0 || years > 4 {
+			return nil, errors.New("years must be between 0 and 4")
+		}
+
+		months, err := strconv.Atoi(customExp.Months)
+		if err != nil || months < 0 || months > 11 {
+			return nil, errors.New("months must be between 0 and 11")
+		}
+
+		days, err := strconv.Atoi(customExp.Days)
+		if err != nil || days < 0 || days > 30 {
+			return nil, errors.New("days must be between 0 and 30")
+		}
+
+		hours, err := strconv.Atoi(customExp.Hours)
+		if err != nil || hours < 0 || hours > 23 {
+			return nil, errors.New("hours must be between 0 and 23")
+		}
+
+		minutes, err := strconv.Atoi(customExp.Minutes)
+		if err != nil || minutes < 0 || minutes > 59 {
+			return nil, errors.New("minutes must be between 0 and 59")
+		}
+
+		// Calculate total days: years*365 + months*30 + days + hours/24 + minutes/(24*60)
+		totalDays := float64(years*365 + months*30 + days)
+		totalDays += float64(hours) / 24.0
+		totalDays += float64(minutes) / (24.0 * 60.0)
+
+		// Validate: must be less than 5 years (1825 days)
+		if totalDays >= 1825 {
+			return nil, errors.New("custom expiration cannot exceed 5 years (1825 days)")
+		}
+
+		// Add to current time
+		expiresAt = createdAt.AddDate(years, months, days)
+		expiresAt = expiresAt.Add(time.Duration(hours) * time.Hour)
+		expiresAt = expiresAt.Add(time.Duration(minutes) * time.Minute)
+
+		// Validate it's in the future
+		if !expiresAt.After(createdAt) {
+			return nil, errors.New("expiration date must be in the future")
+		}
+
+		return &expiresAt, nil
+	}
+
+	// Handle preset expiration
+	if preset != "" && preset != "default" {
+		switch preset {
+		case "1hour":
+			expiresAt = createdAt.Add(1 * time.Hour)
+		case "12hours":
+			expiresAt = createdAt.Add(12 * time.Hour)
+		case "1day":
+			expiresAt = createdAt.AddDate(0, 0, 1)
+		case "7days":
+			expiresAt = createdAt.AddDate(0, 0, 7)
+		case "1month":
+			expiresAt = createdAt.AddDate(0, 1, 0) // 30 days
+		case "6months":
+			expiresAt = createdAt.AddDate(0, 6, 0) // ~180 days
+		case "1year":
+			expiresAt = createdAt.AddDate(1, 0, 0) // 365 days
+		default:
+			return nil, fmt.Errorf("invalid expiration preset: %s. Valid values: 1hour, 12hours, 1day, 7days, 1month, 6months, 1year, default", preset)
+		}
+
+		// Validate it's in the future (should always be, but double-check)
+		if !expiresAt.After(createdAt) {
+			return nil, errors.New("expiration date must be in the future")
+		}
+
+		return &expiresAt, nil
+	}
+
+	// Default: 5 years from now
+	expiresAt = createdAt.AddDate(5, 0, 0)
+	return &expiresAt, nil
+}
+
+func (c *URLController) GenerateShortCode(originalURL string, userID uuid.UUID, preset string, customExp *models.CustomExpiration) (*models.URL, error) {
 	const maxAttempts = 10 // Maximum attempts to generate a unique short code
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
@@ -63,7 +154,12 @@ func (c *URLController) GenerateShortCode(originalURL string, userID uuid.UUID) 
 
 			// Code doesn't exist - create it
 			createdAt := time.Now()
-			expiresAt := createdAt.AddDate(5, 0, 0)
+
+			// Calculate expiration date
+			expiresAt, err := c.CalculateExpiration(preset, customExp, createdAt)
+			if err != nil {
+				return nil, err
+			}
 
 			urlRecord := models.URL{
 				ShortCode:   code,
@@ -72,7 +168,7 @@ func (c *URLController) GenerateShortCode(originalURL string, userID uuid.UUID) 
 				UserID:      userID,
 				CreatedAt:   createdAt,
 				UpdatedAt:   createdAt,
-				ExpiresAt:   &expiresAt,
+				ExpiresAt:   expiresAt,
 			}
 
 			if err := c.DB.Create(&urlRecord).Error; err != nil {
