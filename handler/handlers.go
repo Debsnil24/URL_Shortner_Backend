@@ -268,7 +268,9 @@ func (h *Handler) DeleteURL(c *gin.Context) {
 func (h *Handler) RedirectURL(c *gin.Context) {
 	code := c.Param("code")
 
-	if strings.TrimSpace(code) == "" {
+	// Trim whitespace and validate
+	code = strings.TrimSpace(code)
+	if code == "" {
 		log.Printf("event=redirect_error reason=missing_code")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing short code"})
 		return
@@ -296,10 +298,14 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 		return
 	}
 
-	if urlRecord.ExpiresAt != nil && urlRecord.ExpiresAt.Before(time.Now()) {
-		log.Printf("event=redirect_error code=%s reason=expired", code)
-		c.JSON(http.StatusGone, gin.H{"error": "Short URL has expired"})
-		return
+	// Check expiration - improved time comparison (handles exact time matches)
+	now := time.Now()
+	if urlRecord.ExpiresAt != nil {
+		if urlRecord.ExpiresAt.Before(now) || urlRecord.ExpiresAt.Equal(now) {
+			log.Printf("event=redirect_error code=%s reason=expired", code)
+			c.JSON(http.StatusGone, gin.H{"error": "Short URL has expired"})
+			return
+		}
 	}
 
 	// Use atomic method to record visit and increment click count together

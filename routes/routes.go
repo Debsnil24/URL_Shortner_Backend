@@ -49,6 +49,8 @@ func RegisterRoutes(router *gin.Engine) {
 	}
 
 	// Public redirect route (MUST be last to avoid catching other routes like /swagger, /api, /auth)
+	// Support both GET and HEAD methods
 	router.GET("/:code", h.RedirectURL)
+	router.HEAD("/:code", h.RedirectURL)
 
 }
