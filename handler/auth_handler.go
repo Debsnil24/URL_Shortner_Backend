@@ -152,6 +152,53 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	// Check if this is a Swagger login (from login page or query param)
+	isSwaggerLogin := c.Query("swagger") == "true" ||
+		c.GetHeader("X-Swagger-Login") == "true" ||
+		strings.Contains(c.GetHeader("Referer"), "/auth/login-page")
+
+	// Get Swagger allowed email for comparison
+	allowedEmail := os.Getenv("SWAGGER_ALLOWED_EMAIL")
+	requestEmail := strings.ToLower(strings.TrimSpace(req.Email))
+
+	// If Swagger login, verify email is whitelisted
+	if isSwaggerLogin {
+		if allowedEmail == "" {
+			c.JSON(http.StatusForbidden, models.AuthResponse{
+				Success: false,
+				Error:   &models.AuthError{Code: "AUTH_403", Message: "Swagger access not configured"},
+			})
+			return
+		}
+
+		// Normalize email for comparison
+		allowedEmailNormalized := strings.ToLower(strings.TrimSpace(allowedEmail))
+
+		// Check if email matches whitelisted email
+		if requestEmail != allowedEmailNormalized {
+			c.JSON(http.StatusForbidden, models.AuthResponse{
+				Success: false,
+				Error:   &models.AuthError{Code: "AUTH_403", Message: "Access denied. This account is not authorized for Swagger access."},
+			})
+			return
+		}
+
+		// Email matches - proceed with normal login (password will be checked against database)
+	} else {
+		// Normal frontend login - block Swagger-allowed email from accessing frontend
+		if allowedEmail != "" {
+			allowedEmailNormalized := strings.ToLower(strings.TrimSpace(allowedEmail))
+			if requestEmail == allowedEmailNormalized {
+				c.JSON(http.StatusForbidden, models.AuthResponse{
+					Success: false,
+					Error:   &models.AuthError{Code: "AUTH_403", Message: "This account is restricted to Swagger access only. Please use the Swagger login page."},
+				})
+				return
+			}
+		}
+	}
+
+	// Continue with normal login flow (password verification happens here)
 	resp, err := h.svc.Login(&req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.AuthResponse{Success: false, Error: &models.AuthError{Code: "AUTH_500", Message: "Failed to login", Details: err.Error()}})
@@ -165,11 +212,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// Set HttpOnly cookie with JWT token
 	if resp.Success && resp.Data != nil && resp.Data.Token != "" {
-		// Check if this is a Swagger login (from login page or query param)
-		isSwaggerLogin := c.Query("swagger") == "true" ||
-			c.GetHeader("X-Swagger-Login") == "true" ||
-			strings.Contains(c.GetHeader("Referer"), "/auth/login-page")
-
 		if isSwaggerLogin {
 			// Use separate cookie for Swagger to keep it isolated from frontend
 			h.setSwaggerCookie(c, resp.Data.Token)
