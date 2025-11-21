@@ -199,9 +199,15 @@ func (c *URLController) GetURLByCode(code string) (*models.URL, error) {
 }
 
 // ListURLsByUser retrieves all URLs for a user with visit statistics
+// Excludes QR code image binary data to optimize performance
 func (c *URLController) ListURLsByUser(userID uuid.UUID) ([]URLSummary, error) {
 	var urls []models.URL
-	if err := c.DB.Where("user_id = ?", userID).Order("created_at DESC").Find(&urls).Error; err != nil {
+	// Select specific columns to exclude qr_code_image (BYTEA) for performance
+	// This prevents loading large binary data when listing URLs
+	if err := c.DB.Select("id, short_code, original_url, user_id, status, created_at, updated_at, expires_at, click_count, qr_code_size, qr_code_format, qr_code_generated_at").
+		Where("user_id = ?", userID).
+		Order("created_at DESC").
+		Find(&urls).Error; err != nil {
 		return nil, err
 	}
 
@@ -514,4 +520,77 @@ func (c *URLController) UpdateURLStatus(code string, userID uuid.UUID, status st
 	}
 
 	return &urlRecord, nil
+}
+
+// GenerateQRCode generates a QR code for a URL and stores it in the database
+// If QR code already exists, it will be regenerated with the new size
+func (c *URLController) GenerateQRCode(code string, userID uuid.UUID, size int) (*models.URL, error) {
+	// Get existing URL
+	var urlRecord models.URL
+	if err := c.DB.Where("short_code = ?", code).First(&urlRecord).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("URL not found")
+		}
+		return nil, err
+	}
+
+	// Check ownership
+	if urlRecord.UserID != userID {
+		return nil, errors.New("permission denied")
+	}
+
+	// Build the full short URL for QR code generation
+	shortURL := fmt.Sprintf("https://www.sniply.co.in/%s", code)
+
+	// Generate QR code using utility function
+	qrCodeBytes, err := util.GenerateQRCode(shortURL, size)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate QR code: %w", err)
+	}
+
+	// Update URL record with QR code data
+	now := time.Now()
+	urlRecord.QRCodeImage = qrCodeBytes
+	urlRecord.QRCodeSize = size
+	urlRecord.QRCodeFormat = "png"
+	urlRecord.QRCodeGeneratedAt = &now
+	urlRecord.UpdatedAt = now
+
+	// Save changes
+	if err := c.DB.Save(&urlRecord).Error; err != nil {
+		return nil, err
+	}
+
+	return &urlRecord, nil
+}
+
+// GetQRCode retrieves the QR code image for a URL
+// If QR code doesn't exist, it will be generated automatically with default size
+func (c *URLController) GetQRCode(code string, userID uuid.UUID) ([]byte, int, string, error) {
+	// Get existing URL
+	var urlRecord models.URL
+	if err := c.DB.Where("short_code = ?", code).First(&urlRecord).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, 0, "", errors.New("URL not found")
+		}
+		return nil, 0, "", err
+	}
+
+	// Check ownership
+	if urlRecord.UserID != userID {
+		return nil, 0, "", errors.New("permission denied")
+	}
+
+	// If QR code doesn't exist, generate it with default size
+	if len(urlRecord.QRCodeImage) == 0 {
+		// Generate QR code with default size
+		generatedURL, err := c.GenerateQRCode(code, userID, util.DefaultQRCodeSize)
+		if err != nil {
+			return nil, 0, "", err
+		}
+		return generatedURL.QRCodeImage, generatedURL.QRCodeSize, generatedURL.QRCodeFormat, nil
+	}
+
+	// Return existing QR code
+	return urlRecord.QRCodeImage, urlRecord.QRCodeSize, urlRecord.QRCodeFormat, nil
 }
