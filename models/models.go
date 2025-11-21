@@ -23,16 +23,20 @@ type User struct {
 }
 
 type URL struct {
-	ID          uint      `gorm:"primaryKey"`
-	ShortCode   string    `gorm:"size:10;unique;not null"`
-	OriginalURL string    `gorm:"not null"`
-	UserID      uuid.UUID `gorm:"type:uuid"`
-	User        User      `gorm:"constraint:OnDelete:CASCADE;"`
-	Status      string    `json:"status" gorm:"type:varchar(10);default:'active';not null"`
-	CreatedAt   time.Time `gorm:"autoCreateTime"`
-	UpdatedAt   time.Time `gorm:"autoUpdateTime"`
-	ExpiresAt   *time.Time
-	ClickCount  int
+	ID                uint      `gorm:"primaryKey"`
+	ShortCode         string    `gorm:"size:10;unique;not null"`
+	OriginalURL       string    `gorm:"not null"`
+	UserID            uuid.UUID `gorm:"type:uuid"`
+	User              User      `gorm:"constraint:OnDelete:CASCADE;"`
+	Status            string    `json:"status" gorm:"type:varchar(10);default:'active';not null"`
+	CreatedAt         time.Time `gorm:"autoCreateTime"`
+	UpdatedAt         time.Time `gorm:"autoUpdateTime"`
+	ExpiresAt         *time.Time
+	ClickCount        int
+	QRCodeImage       []byte     `json:"-" gorm:"type:bytea"`                                   // Exclude from JSON, store as BYTEA
+	QRCodeSize        int        `json:"qr_code_size,omitempty" gorm:"default:256"`             // Size in pixels
+	QRCodeFormat      string     `json:"qr_code_format,omitempty" gorm:"size:10;default:'png'"` // Format: png, svg
+	QRCodeGeneratedAt *time.Time `json:"qr_code_generated_at,omitempty"`                        // Generation timestamp
 }
 
 type URLVisit struct {

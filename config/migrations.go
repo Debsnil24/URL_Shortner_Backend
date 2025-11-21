@@ -140,5 +140,49 @@ func GetMigrations() []*gormigrate.Migration {
 				`).Error
 			},
 		},
+		{
+			ID: "20251120_url_qr_code_columns",
+			Migrate: func(tx *gorm.DB) error {
+				// Add QR code columns to urls table
+				if err := tx.Exec(`
+					ALTER TABLE urls
+					ADD COLUMN IF NOT EXISTS qr_code_image BYTEA,
+					ADD COLUMN IF NOT EXISTS qr_code_size INTEGER DEFAULT 256,
+					ADD COLUMN IF NOT EXISTS qr_code_format VARCHAR(10) DEFAULT 'png',
+					ADD COLUMN IF NOT EXISTS qr_code_generated_at TIMESTAMP
+				`).Error; err != nil {
+					return err
+				}
+
+				// Add partial index for QR code lookups optimization
+				// This index only includes rows with QR codes, making queries faster
+				if err := tx.Exec(`
+					CREATE INDEX IF NOT EXISTS idx_urls_qr_code_generated_at 
+					ON urls(qr_code_generated_at) 
+					WHERE qr_code_image IS NOT NULL
+				`).Error; err != nil {
+					return err
+				}
+
+				return nil
+			},
+			Rollback: func(tx *gorm.DB) error {
+				// Drop index first
+				if err := tx.Exec(`
+					DROP INDEX IF EXISTS idx_urls_qr_code_generated_at
+				`).Error; err != nil {
+					return err
+				}
+
+				// Then drop columns
+				return tx.Exec(`
+					ALTER TABLE urls
+					DROP COLUMN IF EXISTS qr_code_image,
+					DROP COLUMN IF EXISTS qr_code_size,
+					DROP COLUMN IF EXISTS qr_code_format,
+					DROP COLUMN IF EXISTS qr_code_generated_at
+				`).Error
+			},
+		},
 	}
 }

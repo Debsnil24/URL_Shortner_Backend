@@ -20,6 +20,7 @@ GOOGLE_CLIENT_ID=<optional-for-oauth>
 GOOGLE_CLIENT_SECRET=<optional-for-oauth>
 GOOGLE_REDIRECT_URL=http://localhost:8080/auth/google/callback
 FRONTEND_URL=http://localhost:3000
+SHORT_URL_BASE=http://localhost:8080  # Base URL for short links (defaults to https://www.sniply.co.in)
 ENV=development
 COOKIE_DOMAIN=
 ```
