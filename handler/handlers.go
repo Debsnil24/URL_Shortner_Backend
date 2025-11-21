@@ -192,10 +192,17 @@ func (h *Handler) ListURLs(c *gin.Context) {
 		QRCodeSize         int        `json:"qr_code_size,omitempty"`
 		QRCodeFormat       string     `json:"qr_code_format,omitempty"`
 		QRCodeGeneratedAt  *time.Time `json:"qr_code_generated_at,omitempty"`
+		QRCodeURL          string     `json:"qr_code_url,omitempty"` // Direct URL to fetch QR code image
 	}
 
 	response := make([]urlSummary, 0, len(summaries))
 	for _, summary := range summaries {
+		// Build QR code URL if QR code is available
+		qrCodeURL := ""
+		if summary.QRCodeAvailable {
+			qrCodeURL = fmt.Sprintf("/api/urls/%s/qr", summary.ShortCode)
+		}
+
 		response = append(response, urlSummary{
 			ShortCode:          summary.ShortCode,
 			OriginalURL:        summary.OriginalURL,
@@ -212,6 +219,7 @@ func (h *Handler) ListURLs(c *gin.Context) {
 			QRCodeSize:         summary.QRCodeSize,
 			QRCodeFormat:       summary.QRCodeFormat,
 			QRCodeGeneratedAt:  summary.QRCodeGeneratedAt,
+			QRCodeURL:          qrCodeURL,
 		})
 	}
 
@@ -582,6 +590,17 @@ func (h *Handler) GetURLStats(c *gin.Context) {
 		responseData["expires_at"] = urlRecord.ExpiresAt.Format(time.RFC3339)
 	}
 
+	// Include QR code metadata for frontend integration
+	if urlRecord.QRCodeGeneratedAt != nil && urlRecord.QRCodeSize > 0 {
+		responseData["qr_code_available"] = true
+		responseData["qr_code_size"] = urlRecord.QRCodeSize
+		responseData["qr_code_format"] = urlRecord.QRCodeFormat
+		responseData["qr_code_generated_at"] = urlRecord.QRCodeGeneratedAt.Format(time.RFC3339)
+		responseData["qr_code_url"] = fmt.Sprintf("/api/urls/%s/qr", code)
+	} else {
+		responseData["qr_code_available"] = false
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    responseData,
@@ -590,16 +609,17 @@ func (h *Handler) GetURLStats(c *gin.Context) {
 
 // GetQRCode godoc
 // @Summary      Get QR code image
-// @Description  Returns the QR code image for a short link. If QR code doesn't exist, it will be generated automatically with default size (256px).
+// @Description  Returns the QR code image for a short link. If QR code doesn't exist, it will be generated automatically with default size (256px). Use ?download=true to force download instead of inline display.
 // @Tags         urls
 // @Accept       json
 // @Produce      image/png
-// @Param        code  path      string  true  "Short code of the URL"
-// @Success      200   {file}    binary  "QR code PNG image"
-// @Failure      401   {object}  map[string]interface{}
-// @Failure      403   {object}  map[string]interface{}
-// @Failure      404   {object}  map[string]interface{}
-// @Failure      500   {object}  map[string]interface{}
+// @Param        code     path      string  true   "Short code of the URL"
+// @Param        download query     bool    false  "Force download (true) or inline display (false, default)"
+// @Success      200      {file}    binary  "QR code PNG image"
+// @Failure      401      {object}  map[string]interface{}
+// @Failure      403      {object}  map[string]interface{}
+// @Failure      404      {object}  map[string]interface{}
+// @Failure      500      {object}  map[string]interface{}
 // @Security     BearerAuth
 // @Router       /api/urls/{code}/qr [get]
 func (h *Handler) GetQRCode(c *gin.Context) {
@@ -634,9 +654,26 @@ func (h *Handler) GetQRCode(c *gin.Context) {
 		contentType = "image/svg+xml"
 	}
 
-	// Set headers and return image
+	// Check if download parameter is set
+	download := c.Query("download") == "true" || c.Query("download") == "1"
+
+	// Set headers
 	c.Header("Content-Type", contentType)
 	c.Header("Content-Length", fmt.Sprintf("%d", len(qrCodeBytes)))
+
+	// Set Content-Disposition header based on download parameter
+	if download {
+		// Force download with filename
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"qr-%s.%s\"", code, format))
+	} else {
+		// Inline display (default)
+		c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"qr-%s.%s\"", code, format))
+	}
+
+	// Cache QR codes for 24 hours (they don't change unless regenerated)
+	c.Header("Cache-Control", "public, max-age=86400")
+
+	// Return image
 	c.Data(http.StatusOK, contentType, qrCodeBytes)
 }
 
