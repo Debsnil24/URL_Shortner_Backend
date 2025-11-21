@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 
 	"github.com/Debsnil24/URL_Shortner.git/config"
 	"github.com/Debsnil24/URL_Shortner.git/routes"
@@ -52,12 +53,23 @@ func main() {
 		"https://sniply.co.in",     // Add without www
 		"https://dev.sniply.co.in", // Add dev environment
 	}
-	config.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
+	config.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"}
 	config.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"}
 	config.AllowCredentials = true
 	router.Use(cors.New(config))
 
 	routes.RegisterRoutes(router)
 
-	router.Run(":8080")
+	// Get port from environment variable (Render sets this automatically)
+	// Fallback to 8080 for local development
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+		log.Printf("⚠️  PORT not set, using default: %s", port)
+	}
+
+	log.Printf("🚀 Server starting on port %s", port)
+	if err := router.Run(":" + port); err != nil {
+		log.Fatalf("❌ Server failed to start: %v", err)
+	}
 }
