@@ -460,8 +460,14 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 	}
 
 	// Check status first - if paused, return 410 (applies to both GET and HEAD)
-	if urlRecord.Status == "paused" {
-		log.Printf("event=redirect_error code=%s reason=paused", code)
+	// Normalize status by trimming whitespace and converting to lowercase for comparison
+	status := strings.ToLower(strings.TrimSpace(urlRecord.Status))
+	if status == "paused" {
+		log.Printf("event=redirect_error code=%s reason=paused status=%q", code, urlRecord.Status)
+		// Prevent caching of error responses
+		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		c.Header("Pragma", "no-cache")
+		c.Header("Expires", "0")
 		c.JSON(http.StatusGone, gin.H{"error": "Link is paused"})
 		return
 	}
@@ -471,6 +477,10 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 	if urlRecord.ExpiresAt != nil {
 		if urlRecord.ExpiresAt.Before(now) || urlRecord.ExpiresAt.Equal(now) {
 			log.Printf("event=redirect_error code=%s reason=expired", code)
+			// Prevent caching of error responses
+			c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+			c.Header("Pragma", "no-cache")
+			c.Header("Expires", "0")
 			c.JSON(http.StatusGone, gin.H{"error": "Link has expired"})
 			return
 		}
@@ -479,6 +489,10 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 	// Handle HEAD requests - just return status, don't count as click or redirect
 	// HEAD is used for link status checks by frontend
 	if c.Request.Method == "HEAD" {
+		// Prevent caching of HEAD responses
+		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		c.Header("Pragma", "no-cache")
+		c.Header("Expires", "0")
 		c.Header("Location", urlRecord.OriginalURL)
 		c.Status(http.StatusOK)
 		return
@@ -491,6 +505,12 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 		log.Printf("event=redirect_error code=%s reason=visit_record_failed err=%v", code, err)
 		// Continue with redirect even if recording fails - don't block user experience
 	}
+
+	// Prevent caching of redirect responses to ensure fresh redirects
+	// This is important because link status (active/paused) can change dynamically
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
 
 	log.Printf("event=redirect_success code=%s url=%s", code, urlRecord.OriginalURL)
 	c.Redirect(http.StatusFound, urlRecord.OriginalURL)
