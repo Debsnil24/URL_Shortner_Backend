@@ -52,7 +52,7 @@ func main() {
 		"https://sniply.co.in",     // Add without www
 		"https://dev.sniply.co.in", // Add dev environment
 	}
-	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
+	config.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
 	config.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"}
 	config.AllowCredentials = true
 	router.Use(cors.New(config))

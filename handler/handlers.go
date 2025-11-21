@@ -108,9 +108,23 @@ func (h *Handler) ShortenURL(c *gin.Context) {
 		return
 	}
 
+	// Validate that both preset and custom_expiration are not provided simultaneously
+	if req.ExpirationPreset != "" && req.CustomExpiration != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot provide both expiration_preset and custom_expiration. Use only one."})
+		return
+	}
+
 	// Use controller to create shortened URL
-	urlRecord, err := h.urlController.GenerateShortCode(req.URL, userID)
+	urlRecord, err := h.urlController.GenerateShortCode(req.URL, userID, req.ExpirationPreset, req.CustomExpiration)
 	if err != nil {
+		// Check if it's a validation error (400) or calculation error (422)
+		if strings.Contains(err.Error(), "must be between") ||
+			strings.Contains(err.Error(), "cannot exceed") ||
+			strings.Contains(err.Error(), "invalid expiration preset") ||
+			strings.Contains(err.Error(), "must be in the future") {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create shortened URL"})
 		return
 	}
@@ -118,11 +132,18 @@ func (h *Handler) ShortenURL(c *gin.Context) {
 	// Return the shortened URL
 	shortened := "https://www.sniply.co.in/" + urlRecord.ShortCode
 
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"shortened_url": shortened,
 		"original_url":  req.URL,
 		"short_code":    urlRecord.ShortCode,
-	})
+	}
+
+	// Include expires_at in response if it exists
+	if urlRecord.ExpiresAt != nil {
+		response["expires_at"] = urlRecord.ExpiresAt.Format(time.RFC3339)
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // ListURLs godoc
@@ -156,6 +177,7 @@ func (h *Handler) ListURLs(c *gin.Context) {
 	type urlSummary struct {
 		ShortCode          string     `json:"short_code"`
 		OriginalURL        string     `json:"original_url"`
+		Status             string     `json:"status"`
 		ClickCount         int        `json:"click_count"`
 		CreatedAt          time.Time  `json:"created_at"`
 		UpdatedAt          time.Time  `json:"updated_at"`
@@ -171,6 +193,7 @@ func (h *Handler) ListURLs(c *gin.Context) {
 		response = append(response, urlSummary{
 			ShortCode:          summary.ShortCode,
 			OriginalURL:        summary.OriginalURL,
+			Status:             summary.Status,
 			ClickCount:         summary.ClickCount,
 			CreatedAt:          summary.CreatedAt,
 			UpdatedAt:          summary.UpdatedAt,
@@ -231,23 +254,184 @@ func (h *Handler) DeleteURL(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "URL deleted successfully"})
 }
 
+// UpdateURLStatus godoc
+// @Summary      Update URL status
+// @Description  Updates the status of a short link (pause or resume). Only updates the status field, does not affect URL or expiration.
+// @Tags         urls
+// @Accept       json
+// @Produce      json
+// @Param        code  path      string  true  "Short code of the URL"
+// @Param        request  body      models.UpdateStatusRequest  true  "Status update request"
+// @Success      200      {object}  map[string]interface{}
+// @Failure      400      {object}  map[string]interface{}
+// @Failure      401      {object}  map[string]interface{}
+// @Failure      403      {object}  map[string]interface{}
+// @Failure      404      {object}  map[string]interface{}
+// @Failure      500      {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/urls/{code}/status [patch]
+func (h *Handler) UpdateURLStatus(c *gin.Context) {
+	code := c.Param("code")
+
+	var req models.UpdateStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID, err := GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	urlRecord, err := h.urlController.UpdateURLStatus(code, userID, req.Status)
+	if err != nil {
+		if err.Error() == "URL not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
+			return
+		}
+		if err.Error() == "permission denied" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to update this URL"})
+			return
+		}
+		if err.Error() == "status must be either 'active' or 'paused'" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid status value. Status must be either 'active' or 'paused'"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update URL status"})
+		return
+	}
+
+	// Build response data
+	data := gin.H{
+		"short_code":   urlRecord.ShortCode,
+		"original_url": urlRecord.OriginalURL,
+		"status":       urlRecord.Status,
+		"click_count":  urlRecord.ClickCount,
+		"created_at":   urlRecord.CreatedAt,
+		"updated_at":   urlRecord.UpdatedAt,
+	}
+
+	// Include expires_at if it exists
+	if urlRecord.ExpiresAt != nil {
+		data["expires_at"] = urlRecord.ExpiresAt.Format(time.RFC3339)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "URL status updated successfully",
+		"data":    data,
+	})
+}
+
+// UpdateURL godoc
+// @Summary      Update a short URL
+// @Description  Updates the original URL and/or expiration date of a shortened URL (only if owned by the authenticated user)
+// @Tags         urls
+// @Accept       json
+// @Produce      json
+// @Param        code  path      string  true  "Short code of the URL"
+// @Param        request  body      models.UpdateURLRequest  true  "Update request"
+// @Success      200      {object}  map[string]interface{}
+// @Failure      400      {object}  map[string]interface{}
+// @Failure      401      {object}  map[string]interface{}
+// @Failure      403      {object}  map[string]interface{}
+// @Failure      404      {object}  map[string]interface{}
+// @Failure      410      {object}  map[string]interface{}
+// @Failure      422      {object}  map[string]interface{}
+// @Failure      500      {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/urls/{code} [patch]
+func (h *Handler) UpdateURL(c *gin.Context) {
+	code := c.Param("code")
+
+	var req models.UpdateURLRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID, err := GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	urlRecord, err := h.urlController.UpdateURL(code, userID, &req)
+	if err != nil {
+		if err.Error() == "URL not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
+			return
+		}
+		if err.Error() == "permission denied" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to update this URL"})
+			return
+		}
+		if err.Error() == "cannot update URL of expired link. Update expiration to reactivate it" {
+			c.JSON(http.StatusGone, gin.H{"error": "Cannot update URL of expired link. Update expiration to reactivate it."})
+			return
+		}
+		if strings.Contains(err.Error(), "at least one field") ||
+			strings.Contains(err.Error(), "cannot provide both") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if strings.Contains(err.Error(), "must be between") ||
+			strings.Contains(err.Error(), "cannot exceed") ||
+			strings.Contains(err.Error(), "invalid expiration preset") ||
+			strings.Contains(err.Error(), "must be in the future") ||
+			strings.Contains(err.Error(), "invalid URL format") {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update URL"})
+		return
+	}
+
+	// Build response data
+	data := gin.H{
+		"short_code":   urlRecord.ShortCode,
+		"original_url": urlRecord.OriginalURL,
+		"status":       urlRecord.Status,
+		"click_count":  urlRecord.ClickCount,
+		"created_at":   urlRecord.CreatedAt,
+		"updated_at":   urlRecord.UpdatedAt,
+	}
+
+	// Include expires_at if it exists
+	if urlRecord.ExpiresAt != nil {
+		data["expires_at"] = urlRecord.ExpiresAt.Format(time.RFC3339)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "URL updated successfully",
+		"data":    data,
+	})
+}
+
 // RedirectURL godoc
 // @Summary      Redirect to original URL
-// @Description  Redirects to the original URL associated with the short code
+// @Description  Redirects to the original URL associated with the short code. Supports both GET and HEAD methods. GET requests count as clicks and redirect, while HEAD requests only check status and do not count as clicks.
 // @Tags         public
 // @Accept       json
 // @Produce      json
 // @Param        code  path      string  true  "Short code"
-// @Success      302   {string}  string  "Redirect"
+// @Success      200   {string}  string  "HEAD request - Status check only (no click counted)"
+// @Success      302   {string}  string  "GET request - Redirect (click counted)"
 // @Failure      400   {object}  map[string]interface{}
 // @Failure      404   {object}  map[string]interface{}
 // @Failure      410   {object}  map[string]interface{}
 // @Failure      500   {object}  map[string]interface{}
 // @Router       /{code} [get]
+// @Router       /{code} [head]
 func (h *Handler) RedirectURL(c *gin.Context) {
 	code := c.Param("code")
 
-	if strings.TrimSpace(code) == "" {
+	// Trim whitespace and validate
+	code = strings.TrimSpace(code)
+	if code == "" {
 		log.Printf("event=redirect_error reason=missing_code")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing short code"})
 		return
@@ -275,12 +459,32 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 		return
 	}
 
-	if urlRecord.ExpiresAt != nil && urlRecord.ExpiresAt.Before(time.Now()) {
-		log.Printf("event=redirect_error code=%s reason=expired", code)
-		c.JSON(http.StatusGone, gin.H{"error": "Short URL has expired"})
+	// Check status first - if paused, return 410 (applies to both GET and HEAD)
+	if urlRecord.Status == "paused" {
+		log.Printf("event=redirect_error code=%s reason=paused", code)
+		c.JSON(http.StatusGone, gin.H{"error": "Link is paused"})
 		return
 	}
 
+	// Check expiration - improved time comparison (handles exact time matches)
+	now := time.Now()
+	if urlRecord.ExpiresAt != nil {
+		if urlRecord.ExpiresAt.Before(now) || urlRecord.ExpiresAt.Equal(now) {
+			log.Printf("event=redirect_error code=%s reason=expired", code)
+			c.JSON(http.StatusGone, gin.H{"error": "Link has expired"})
+			return
+		}
+	}
+
+	// Handle HEAD requests - just return status, don't count as click or redirect
+	// HEAD is used for link status checks by frontend
+	if c.Request.Method == "HEAD" {
+		c.Header("Location", urlRecord.OriginalURL)
+		c.Status(http.StatusOK)
+		return
+	}
+
+	// Only count GET requests as clicks (not HEAD requests)
 	// Use atomic method to record visit and increment click count together
 	// This ensures both operations succeed or fail together, preventing data inconsistency
 	if err := h.urlController.RecordVisitAndIncrement(urlRecord.ID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
@@ -332,14 +536,45 @@ func (h *Handler) GetURLStats(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	// Get URL record to access expires_at
+	urlRecord, err := h.urlController.GetURLByCode(code)
+	if err != nil {
+		// If we can't get URL record, still return stats but without expires_at
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": gin.H{
+				"short_code":            stats.ShortCode,
+				"original_url":          stats.OriginalURL,
+				"status":                stats.Status,
+				"click_count":           stats.ClickCount,
+				"total_visits":          stats.TotalVisits,
+				"unique_visitors":       stats.UniqueVisitors,
+				"last_visit_at":         stats.LastVisitAt,
+				"last_visit_user_agent": stats.LastVisitUserAgent,
+			},
+		})
+		return
+	}
+
+	responseData := gin.H{
 		"short_code":            stats.ShortCode,
 		"original_url":          stats.OriginalURL,
+		"status":                stats.Status,
 		"click_count":           stats.ClickCount,
 		"total_visits":          stats.TotalVisits,
 		"unique_visitors":       stats.UniqueVisitors,
 		"last_visit_at":         stats.LastVisitAt,
 		"last_visit_user_agent": stats.LastVisitUserAgent,
+	}
+
+	// Include expires_at if it exists
+	if urlRecord.ExpiresAt != nil {
+		responseData["expires_at"] = urlRecord.ExpiresAt.Format(time.RFC3339)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    responseData,
 	})
 }
 

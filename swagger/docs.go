@@ -315,6 +315,102 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/urls/{code}": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Updates the original URL and/or expiration date of a shortened URL (only if owned by the authenticated user)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "urls"
+                ],
+                "summary": "Update a short URL",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Short code of the URL",
+                        "name": "code",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.UpdateURLRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/urls/{code}/stats": {
             "get": {
                 "security": [
@@ -345,6 +441,88 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/urls/{code}/status": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Updates the status of a short link (pause or resume). Only updates the status field, does not affect URL or expiration.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "urls"
+                ],
+                "summary": "Update URL status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Short code of the URL",
+                        "name": "code",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Status update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.UpdateStatusRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -641,7 +819,7 @@ const docTemplate = `{
         },
         "/{code}": {
             "get": {
-                "description": "Redirects to the original URL associated with the short code",
+                "description": "Redirects to the original URL associated with the short code. Supports both GET and HEAD methods. GET requests count as clicks and redirect, while HEAD requests only check status and do not count as clicks.",
                 "consumes": [
                     "application/json"
                 ],
@@ -662,8 +840,78 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
+                    "200": {
+                        "description": "HEAD request - Status check only (no click counted)",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
                     "302": {
-                        "description": "Redirect",
+                        "description": "GET request - Redirect (click counted)",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "head": {
+                "description": "Redirects to the original URL associated with the short code. Supports both GET and HEAD methods. GET requests count as clicks and redirect, while HEAD requests only check status and do not count as clicks.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "public"
+                ],
+                "summary": "Redirect to original URL",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Short code",
+                        "name": "code",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "HEAD request - Status check only (no click counted)",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "302": {
+                        "description": "GET request - Redirect (click counted)",
                         "schema": {
                             "type": "string"
                         }
@@ -741,6 +989,31 @@ const docTemplate = `{
                 }
             }
         },
+        "models.CustomExpiration": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "description": "\"0\" | \"1\" | ... | \"30\"",
+                    "type": "string"
+                },
+                "hours": {
+                    "description": "\"0\" | \"1\" | ... | \"23\"",
+                    "type": "string"
+                },
+                "minutes": {
+                    "description": "\"0\" | \"1\" | ... | \"59\"",
+                    "type": "string"
+                },
+                "months": {
+                    "description": "\"0\" | \"1\" | ... | \"11\"",
+                    "type": "string"
+                },
+                "years": {
+                    "description": "\"0\" | \"1\" | \"2\" | \"3\" | \"4\"",
+                    "type": "string"
+                }
+            }
+        },
         "models.LoginRequest": {
             "type": "object",
             "required": [
@@ -786,6 +1059,13 @@ const docTemplate = `{
                 "url"
             ],
             "properties": {
+                "custom_expiration": {
+                    "$ref": "#/definitions/models.CustomExpiration"
+                },
+                "expiration_preset": {
+                    "description": "\"1hour\" | \"12hours\" | \"1day\" | \"7days\" | \"1month\" | \"6months\" | \"1year\" | \"default\"",
+                    "type": "string"
+                },
                 "url": {
                     "type": "string"
                 }
@@ -826,6 +1106,43 @@ const docTemplate = `{
                 },
                 "success": {
                     "type": "boolean"
+                }
+            }
+        },
+        "models.UpdateStatusRequest": {
+            "type": "object",
+            "required": [
+                "status"
+            ],
+            "properties": {
+                "status": {
+                    "description": "Required: must be \"active\" or \"paused\"",
+                    "type": "string",
+                    "enum": [
+                        "active",
+                        "paused"
+                    ]
+                }
+            }
+        },
+        "models.UpdateURLRequest": {
+            "type": "object",
+            "properties": {
+                "custom_expiration": {
+                    "description": "Optional: only if custom expiration selected",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/models.CustomExpiration"
+                        }
+                    ]
+                },
+                "expiration_preset": {
+                    "description": "Optional: only if expiration changed",
+                    "type": "string"
+                },
+                "url": {
+                    "description": "Optional: only if URL changed",
+                    "type": "string"
                 }
             }
         },

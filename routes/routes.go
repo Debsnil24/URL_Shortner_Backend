@@ -30,6 +30,8 @@ func RegisterRoutes(router *gin.Engine) {
 		api.POST("/shorten", middleware.AuthRequired(), h.ShortenURL)
 		api.GET("/urls", middleware.AuthRequired(), h.ListURLs)
 		api.GET("/urls/:code/stats", middleware.AuthRequired(), h.GetURLStats)
+		api.PATCH("/urls/:code/status", middleware.AuthRequired(), h.UpdateURLStatus) // Status update endpoint (must be before /urls/:code)
+		api.PATCH("/urls/:code", middleware.AuthRequired(), h.UpdateURL)
 		api.DELETE("/delete/:code", middleware.AuthRequired(), h.DeleteURL)
 		// Support endpoint with rate limiting and timeout
 		api.POST("/support", middleware.RateLimit(), middleware.RequestTimeout(30*time.Second), h.SubmitSupport)
@@ -49,6 +51,8 @@ func RegisterRoutes(router *gin.Engine) {
 	}
 
 	// Public redirect route (MUST be last to avoid catching other routes like /swagger, /api, /auth)
+	// Support both GET and HEAD methods
 	router.GET("/:code", h.RedirectURL)
+	router.HEAD("/:code", h.RedirectURL)
 
 }

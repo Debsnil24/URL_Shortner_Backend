@@ -115,5 +115,30 @@ func GetMigrations() []*gormigrate.Migration {
 				`).Error
 			},
 		},
+		{
+			ID: "20251120_url_status_column",
+			Migrate: func(tx *gorm.DB) error {
+				// Add status column with default value 'active'
+				if err := tx.Exec(`
+					ALTER TABLE urls
+					ADD COLUMN IF NOT EXISTS status VARCHAR(10) DEFAULT 'active' NOT NULL
+				`).Error; err != nil {
+					return err
+				}
+
+				// Update existing records to have 'active' status
+				return tx.Exec(`
+					UPDATE urls
+					SET status = 'active'
+					WHERE status IS NULL OR status = ''
+				`).Error
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Exec(`
+					ALTER TABLE urls
+					DROP COLUMN IF EXISTS status
+				`).Error
+			},
+		},
 	}
 }

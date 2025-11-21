@@ -26,6 +26,24 @@ definitions:
       success:
         type: boolean
     type: object
+  models.CustomExpiration:
+    properties:
+      days:
+        description: '"0" | "1" | ... | "30"'
+        type: string
+      hours:
+        description: '"0" | "1" | ... | "23"'
+        type: string
+      minutes:
+        description: '"0" | "1" | ... | "59"'
+        type: string
+      months:
+        description: '"0" | "1" | ... | "11"'
+        type: string
+      years:
+        description: '"0" | "1" | "2" | "3" | "4"'
+        type: string
+    type: object
   models.LoginRequest:
     properties:
       email:
@@ -55,6 +73,12 @@ definitions:
     type: object
   models.ShortenURLRequest:
     properties:
+      custom_expiration:
+        $ref: '#/definitions/models.CustomExpiration'
+      expiration_preset:
+        description: '"1hour" | "12hours" | "1day" | "7days" | "1month" | "6months"
+          | "1year" | "default"'
+        type: string
       url:
         type: string
     required:
@@ -86,6 +110,30 @@ definitions:
         type: string
       success:
         type: boolean
+    type: object
+  models.UpdateStatusRequest:
+    properties:
+      status:
+        description: 'Required: must be "active" or "paused"'
+        enum:
+        - active
+        - paused
+        type: string
+    required:
+    - status
+    type: object
+  models.UpdateURLRequest:
+    properties:
+      custom_expiration:
+        allOf:
+        - $ref: '#/definitions/models.CustomExpiration'
+        description: 'Optional: only if custom expiration selected'
+      expiration_preset:
+        description: 'Optional: only if expiration changed'
+        type: string
+      url:
+        description: 'Optional: only if URL changed'
+        type: string
     type: object
   models.User:
     properties:
@@ -145,7 +193,9 @@ paths:
     get:
       consumes:
       - application/json
-      description: Redirects to the original URL associated with the short code
+      description: Redirects to the original URL associated with the short code. Supports
+        both GET and HEAD methods. GET requests count as clicks and redirect, while
+        HEAD requests only check status and do not count as clicks.
       parameters:
       - description: Short code
         in: path
@@ -155,8 +205,58 @@ paths:
       produces:
       - application/json
       responses:
+        "200":
+          description: HEAD request - Status check only (no click counted)
+          schema:
+            type: string
         "302":
-          description: Redirect
+          description: GET request - Redirect (click counted)
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "410":
+          description: Gone
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Redirect to original URL
+      tags:
+      - public
+    head:
+      consumes:
+      - application/json
+      description: Redirects to the original URL associated with the short code. Supports
+        both GET and HEAD methods. GET requests count as clicks and redirect, while
+        HEAD requests only check status and do not count as clicks.
+      parameters:
+      - description: Short code
+        in: path
+        name: code
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: HEAD request - Status check only (no click counted)
+          schema:
+            type: string
+        "302":
+          description: GET request - Redirect (click counted)
           schema:
             type: string
         "400":
@@ -377,6 +477,72 @@ paths:
       summary: List user's URLs
       tags:
       - urls
+  /api/urls/{code}:
+    patch:
+      consumes:
+      - application/json
+      description: Updates the original URL and/or expiration date of a shortened
+        URL (only if owned by the authenticated user)
+      parameters:
+      - description: Short code of the URL
+        in: path
+        name: code
+        required: true
+        type: string
+      - description: Update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.UpdateURLRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "410":
+          description: Gone
+          schema:
+            additionalProperties: true
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update a short URL
+      tags:
+      - urls
   /api/urls/{code}/stats:
     get:
       consumes:
@@ -420,6 +586,62 @@ paths:
       security:
       - BearerAuth: []
       summary: Get URL statistics
+      tags:
+      - urls
+  /api/urls/{code}/status:
+    patch:
+      consumes:
+      - application/json
+      description: Updates the status of a short link (pause or resume). Only updates
+        the status field, does not affect URL or expiration.
+      parameters:
+      - description: Short code of the URL
+        in: path
+        name: code
+        required: true
+        type: string
+      - description: Status update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.UpdateStatusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update URL status
       tags:
       - urls
   /auth/google:

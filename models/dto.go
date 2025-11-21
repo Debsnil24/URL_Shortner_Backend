@@ -1,7 +1,27 @@
 package models
 
 type ShortenURLRequest struct {
-	URL string `json:"url" binding:"required,url"`
+	URL              string            `json:"url" binding:"required,url"`
+	ExpirationPreset string            `json:"expiration_preset,omitempty"` // "1hour" | "12hours" | "1day" | "7days" | "1month" | "6months" | "1year" | "default"
+	CustomExpiration *CustomExpiration `json:"custom_expiration,omitempty"`
+}
+
+type CustomExpiration struct {
+	Years   string `json:"years"`   // "0" | "1" | "2" | "3" | "4"
+	Months  string `json:"months"`  // "0" | "1" | ... | "11"
+	Days    string `json:"days"`    // "0" | "1" | ... | "30"
+	Hours   string `json:"hours"`   // "0" | "1" | ... | "23"
+	Minutes string `json:"minutes"` // "0" | "1" | ... | "59"
+}
+
+type UpdateURLRequest struct {
+	URL              string            `json:"url,omitempty"`               // Optional: only if URL changed
+	ExpirationPreset string            `json:"expiration_preset,omitempty"` // Optional: only if expiration changed
+	CustomExpiration *CustomExpiration `json:"custom_expiration,omitempty"` // Optional: only if custom expiration selected
+}
+
+type UpdateStatusRequest struct {
+	Status string `json:"status" binding:"required,oneof=active paused"` // Required: must be "active" or "paused"
 }
 
 type ShortenURLResponse struct {

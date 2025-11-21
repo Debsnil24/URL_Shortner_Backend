@@ -28,6 +28,7 @@ type URL struct {
 	OriginalURL string    `gorm:"not null"`
 	UserID      uuid.UUID `gorm:"type:uuid"`
 	User        User      `gorm:"constraint:OnDelete:CASCADE;"`
+	Status      string    `json:"status" gorm:"type:varchar(10);default:'active';not null"`
 	CreatedAt   time.Time `gorm:"autoCreateTime"`
 	UpdatedAt   time.Time `gorm:"autoUpdateTime"`
 	ExpiresAt   *time.Time
