@@ -173,7 +173,7 @@ func (c *URLController) GenerateShortCode(originalURL string, userID uuid.UUID, 
 				OriginalURL: originalURL,
 				ClickCount:  0,
 				UserID:      userID,
-				Status:      "active",
+				Status:      util.StatusActive,
 				CreatedAt:   createdAt,
 				UpdatedAt:   createdAt,
 				ExpiresAt:   expiresAt,
@@ -293,13 +293,13 @@ func (c *URLController) DeleteURL(code string, userID uuid.UUID) error {
 	var urlRecord models.URL
 	if err := c.DB.Where("short_code = ?", code).First(&urlRecord).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return errors.New("URL not found")
+			return ErrURLNotFound
 		}
 		return err
 	}
 
 	if urlRecord.UserID != userID {
-		return errors.New("permission denied")
+		return ErrPermissionDenied
 	}
 
 	if err := c.DB.Delete(&urlRecord).Error; err != nil {
@@ -315,14 +315,14 @@ func (c *URLController) UpdateURL(code string, userID uuid.UUID, req *models.Upd
 	var urlRecord models.URL
 	if err := c.DB.Where("short_code = ?", code).First(&urlRecord).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("URL not found")
+			return nil, ErrURLNotFound
 		}
 		return nil, err
 	}
 
 	// Check ownership
 	if urlRecord.UserID != userID {
-		return nil, errors.New("permission denied")
+		return nil, ErrPermissionDenied
 	}
 
 	// Check if at least one field is provided
@@ -331,11 +331,11 @@ func (c *URLController) UpdateURL(code string, userID uuid.UUID, req *models.Upd
 	hasBothExpiration := req.ExpirationPreset != "" && req.CustomExpiration != nil
 
 	if !hasURLUpdate && !hasExpirationUpdate {
-		return nil, errors.New("at least one field (url, expiration_preset, or custom_expiration) must be provided")
+		return nil, ErrNoFieldsProvided
 	}
 
 	if hasBothExpiration {
-		return nil, errors.New("cannot provide both expiration_preset and custom_expiration. Use only one")
+		return nil, ErrBothExpirationProvided
 	}
 
 	now := time.Now()
@@ -347,7 +347,7 @@ func (c *URLController) UpdateURL(code string, userID uuid.UUID, req *models.Upd
 	if isExpired {
 		// If expired and only URL is being updated (no expiration update), return 410
 		if hasURLUpdate && !hasExpirationUpdate {
-			return nil, errors.New("cannot update URL of expired link. Update expiration to reactivate it")
+			return nil, ErrExpiredLinkUpdate
 		}
 		// If expired and expiration is being updated, allow it (reactivation)
 	}
@@ -471,13 +471,13 @@ func (c *URLController) GetURLStats(code string, userID uuid.UUID) (*URLStats, e
 	urlRecord, err := c.GetURLByCode(code)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("URL not found")
+			return nil, ErrURLNotFound
 		}
 		return nil, err
 	}
 
 	if urlRecord.UserID != userID {
-		return nil, errors.New("permission denied")
+		return nil, ErrPermissionDenied
 	}
 
 	// Use a single query with LEFT JOINs and aggregations to get all statistics at once
@@ -539,22 +539,22 @@ func (c *URLController) GetURLStats(code string, userID uuid.UUID) (*URLStats, e
 // UpdateURLStatus updates only the status field of a URL
 func (c *URLController) UpdateURLStatus(code string, userID uuid.UUID, status string) (*models.URL, error) {
 	// Validate status value
-	if status != "active" && status != "paused" {
-		return nil, errors.New("status must be either 'active' or 'paused'")
+	if status != util.StatusActive && status != util.StatusPaused {
+		return nil, ErrInvalidStatus
 	}
 
 	// Get existing URL
 	var urlRecord models.URL
 	if err := c.DB.Where("short_code = ?", code).First(&urlRecord).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("URL not found")
+			return nil, ErrURLNotFound
 		}
 		return nil, err
 	}
 
 	// Check ownership
 	if urlRecord.UserID != userID {
-		return nil, errors.New("permission denied")
+		return nil, ErrPermissionDenied
 	}
 
 	// Update status and timestamp
@@ -582,14 +582,14 @@ func (c *URLController) GenerateQRCode(code string, userID uuid.UUID, size int, 
 		Where("short_code = ?", code).
 		First(&urlRecord).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("URL not found")
+			return nil, ErrURLNotFound
 		}
 		return nil, err
 	}
 
 	// Check ownership
 	if urlRecord.UserID != userID {
-		return nil, errors.New("permission denied")
+		return nil, ErrPermissionDenied
 	}
 
 	// Build the full short URL for QR code generation
@@ -636,14 +636,14 @@ func (c *URLController) GetQRCode(code string, userID uuid.UUID) ([]byte, int, s
 		Where("short_code = ?", code).
 		First(&urlRecord).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, 0, "", errors.New("URL not found")
+			return nil, 0, "", ErrURLNotFound
 		}
 		return nil, 0, "", err
 	}
 
 	// Check ownership
 	if urlRecord.UserID != userID {
-		return nil, 0, "", errors.New("permission denied")
+		return nil, 0, "", ErrPermissionDenied
 	}
 
 	// If QR code doesn't exist, generate it with default size
