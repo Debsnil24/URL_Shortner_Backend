@@ -535,10 +535,15 @@ func (c *URLController) UpdateURLStatus(code string, userID uuid.UUID, status st
 
 // GenerateQRCode generates a QR code for a URL and stores it in the database
 // If QR code already exists, it will be regenerated with the new size
+// Optimized to exclude qr_code_image from initial query since we regenerate it
 func (c *URLController) GenerateQRCode(code string, userID uuid.UUID, size int) (*models.URL, error) {
-	// Get existing URL
+	// Get existing URL - exclude qr_code_image to optimize query performance
+	// We'll regenerate the QR code anyway, so no need to load the existing binary data
 	var urlRecord models.URL
-	if err := c.DB.Where("short_code = ?", code).First(&urlRecord).Error; err != nil {
+	if err := c.DB.
+		Select("id, short_code, original_url, user_id, status, created_at, updated_at, expires_at, click_count, qr_code_size, qr_code_format, qr_code_generated_at").
+		Where("short_code = ?", code).
+		First(&urlRecord).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("URL not found")
 		}
@@ -567,7 +572,8 @@ func (c *URLController) GenerateQRCode(code string, userID uuid.UUID, size int) 
 	urlRecord.QRCodeGeneratedAt = &now
 	urlRecord.UpdatedAt = now
 
-	// Save changes
+	// Save changes - GORM will update all fields including qr_code_image
+	// even though it wasn't in the initial Select() query
 	if err := c.DB.Save(&urlRecord).Error; err != nil {
 		return nil, err
 	}
@@ -577,10 +583,15 @@ func (c *URLController) GenerateQRCode(code string, userID uuid.UUID, size int) 
 
 // GetQRCode retrieves the QR code image for a URL
 // If QR code doesn't exist, it will be generated automatically with default size
+// Optimized to only load necessary columns for better performance
 func (c *URLController) GetQRCode(code string, userID uuid.UUID) ([]byte, int, string, error) {
-	// Get existing URL
+	// Get existing URL - only select columns needed for QR code retrieval
+	// This optimization reduces memory usage and improves query performance
 	var urlRecord models.URL
-	if err := c.DB.Where("short_code = ?", code).First(&urlRecord).Error; err != nil {
+	if err := c.DB.
+		Select("id, short_code, user_id, qr_code_image, qr_code_size, qr_code_format").
+		Where("short_code = ?", code).
+		First(&urlRecord).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, 0, "", errors.New("URL not found")
 		}

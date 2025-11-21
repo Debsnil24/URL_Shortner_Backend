@@ -154,9 +154,27 @@ func GetMigrations() []*gormigrate.Migration {
 					return err
 				}
 
+				// Add partial index for QR code lookups optimization
+				// This index only includes rows with QR codes, making queries faster
+				if err := tx.Exec(`
+					CREATE INDEX IF NOT EXISTS idx_urls_qr_code_generated_at 
+					ON urls(qr_code_generated_at) 
+					WHERE qr_code_image IS NOT NULL
+				`).Error; err != nil {
+					return err
+				}
+
 				return nil
 			},
 			Rollback: func(tx *gorm.DB) error {
+				// Drop index first
+				if err := tx.Exec(`
+					DROP INDEX IF EXISTS idx_urls_qr_code_generated_at
+				`).Error; err != nil {
+					return err
+				}
+
+				// Then drop columns
 				return tx.Exec(`
 					ALTER TABLE urls
 					DROP COLUMN IF EXISTS qr_code_image,
