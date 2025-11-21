@@ -12,6 +12,7 @@ import (
 	"github.com/Debsnil24/URL_Shortner.git/controller"
 	"github.com/Debsnil24/URL_Shortner.git/models"
 	"github.com/Debsnil24/URL_Shortner.git/service"
+	"github.com/Debsnil24/URL_Shortner.git/util"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -131,8 +132,8 @@ func (h *Handler) ShortenURL(c *gin.Context) {
 		return
 	}
 
-	// Return the shortened URL
-	shortened := "https://www.sniply.co.in/" + urlRecord.ShortCode
+	// Return the shortened URL using auto-detected base URL from request
+	shortened := util.BuildShortURLFromRequest(c, urlRecord.ShortCode)
 
 	response := gin.H{
 		"shortened_url": shortened,
@@ -609,17 +610,18 @@ func (h *Handler) GetURLStats(c *gin.Context) {
 
 // GetQRCode godoc
 // @Summary      Get QR code image
-// @Description  Returns the QR code image for a short link. If QR code doesn't exist, it will be generated automatically with default size (256px). Use ?download=true to force download instead of inline display.
+// @Description  Returns the QR code image for a short link. If QR code doesn't exist, it will be generated automatically with default size (256px). Use ?download=true to force download instead of inline display. Use ?regenerate=true to force regeneration of existing QR code.
 // @Tags         urls
 // @Accept       json
 // @Produce      image/png
-// @Param        code     path      string  true   "Short code of the URL"
-// @Param        download query     bool    false  "Force download (true) or inline display (false, default)"
-// @Success      200      {file}    binary  "QR code PNG image"
-// @Failure      401      {object}  map[string]interface{}
-// @Failure      403      {object}  map[string]interface{}
-// @Failure      404      {object}  map[string]interface{}
-// @Failure      500      {object}  map[string]interface{}
+// @Param        code       path      string  true   "Short code of the URL"
+// @Param        download   query     bool    false  "Force download (true) or inline display (false, default)"
+// @Param        regenerate query     bool    false  "Force regeneration of QR code even if it exists (true) or use existing (false, default)"
+// @Success      200        {file}    binary  "QR code PNG image"
+// @Failure      401        {object}  map[string]interface{}
+// @Failure      403        {object}  map[string]interface{}
+// @Failure      404        {object}  map[string]interface{}
+// @Failure      500        {object}  map[string]interface{}
 // @Security     BearerAuth
 // @Router       /api/urls/{code}/qr [get]
 func (h *Handler) GetQRCode(c *gin.Context) {
@@ -629,6 +631,76 @@ func (h *Handler) GetQRCode(c *gin.Context) {
 	userID, err := GetUserIDFromContext(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if regeneration is requested
+	regenerate := c.Query("regenerate") == "true" || c.Query("regenerate") == "1"
+
+	// If regeneration is requested, generate new QR code
+	if regenerate {
+		// Get base URL from request for QR code generation
+		baseURL := util.GetShortURLBaseFromRequest(c)
+
+		// Use default size for regeneration (or could accept size parameter)
+		size := 256
+		if sizeParam := c.Query("size"); sizeParam != "" {
+			if parsedSize, err := strconv.Atoi(sizeParam); err == nil {
+				size = parsedSize
+			}
+		}
+
+		// Generate/regenerate QR code
+		urlRecord, err := h.urlController.GenerateQRCode(code, userID, size, baseURL)
+		if err != nil {
+			if err.Error() == "URL not found" {
+				c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
+				return
+			}
+			if err.Error() == "permission denied" {
+				c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to access this URL"})
+				return
+			}
+			if strings.Contains(err.Error(), "invalid QR code size") {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			log.Printf("event=get_qr_code_error code=%s err=%v", code, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to regenerate QR code"})
+			return
+		}
+
+		// Return the regenerated QR code
+		qrCodeBytes := urlRecord.QRCodeImage
+		format := urlRecord.QRCodeFormat
+
+		// Set appropriate content type based on format
+		contentType := "image/png"
+		if format == "svg" {
+			contentType = "image/svg+xml"
+		}
+
+		// Check if download parameter is set
+		download := c.Query("download") == "true" || c.Query("download") == "1"
+
+		// Set headers
+		c.Header("Content-Type", contentType)
+		c.Header("Content-Length", fmt.Sprintf("%d", len(qrCodeBytes)))
+
+		// Set Content-Disposition header based on download parameter
+		if download {
+			// Force download with filename
+			c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"qr-%s.%s\"", code, format))
+		} else {
+			// Inline display (default)
+			c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"qr-%s.%s\"", code, format))
+		}
+
+		// Cache QR codes for 24 hours (they don't change unless regenerated)
+		c.Header("Cache-Control", "public, max-age=86400")
+
+		// Return image
+		c.Data(http.StatusOK, contentType, qrCodeBytes)
 		return
 	}
 
@@ -721,8 +793,11 @@ func (h *Handler) GenerateQRCode(c *gin.Context) {
 		}
 	}
 
+	// Get base URL from request for QR code generation
+	baseURL := util.GetShortURLBaseFromRequest(c)
+
 	// Use controller to generate QR code (includes ownership check)
-	urlRecord, err := h.urlController.GenerateQRCode(code, userID, size)
+	urlRecord, err := h.urlController.GenerateQRCode(code, userID, size, baseURL)
 	if err != nil {
 		if err.Error() == "URL not found" {
 			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})

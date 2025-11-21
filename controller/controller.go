@@ -536,7 +536,8 @@ func (c *URLController) UpdateURLStatus(code string, userID uuid.UUID, status st
 // GenerateQRCode generates a QR code for a URL and stores it in the database
 // If QR code already exists, it will be regenerated with the new size
 // Optimized to exclude qr_code_image from initial query since we regenerate it
-func (c *URLController) GenerateQRCode(code string, userID uuid.UUID, size int) (*models.URL, error) {
+// baseURL is optional - if empty, uses environment variable or default
+func (c *URLController) GenerateQRCode(code string, userID uuid.UUID, size int, baseURL ...string) (*models.URL, error) {
 	// Get existing URL - exclude qr_code_image to optimize query performance
 	// We'll regenerate the QR code anyway, so no need to load the existing binary data
 	var urlRecord models.URL
@@ -556,7 +557,13 @@ func (c *URLController) GenerateQRCode(code string, userID uuid.UUID, size int) 
 	}
 
 	// Build the full short URL for QR code generation
-	shortURL := fmt.Sprintf("https://www.sniply.co.in/%s", code)
+	// Use provided baseURL if available, otherwise fall back to environment/default
+	var shortURL string
+	if len(baseURL) > 0 && baseURL[0] != "" {
+		shortURL = fmt.Sprintf("%s/%s", strings.TrimSuffix(baseURL[0], "/"), code)
+	} else {
+		shortURL = util.BuildShortURL(code)
+	}
 
 	// Generate QR code using utility function
 	qrCodeBytes, err := util.GenerateQRCode(shortURL, size)
@@ -604,8 +611,9 @@ func (c *URLController) GetQRCode(code string, userID uuid.UUID) ([]byte, int, s
 	}
 
 	// If QR code doesn't exist, generate it with default size
+	// Note: GetQRCode doesn't have access to request context, so it uses default base URL
 	if len(urlRecord.QRCodeImage) == 0 {
-		// Generate QR code with default size
+		// Generate QR code with default size (using environment/default base URL)
 		generatedURL, err := c.GenerateQRCode(code, userID, util.DefaultQRCodeSize)
 		if err != nil {
 			return nil, 0, "", err

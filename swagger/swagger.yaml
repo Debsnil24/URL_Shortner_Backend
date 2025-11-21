@@ -549,7 +549,8 @@ paths:
       - application/json
       description: Returns the QR code image for a short link. If QR code doesn't
         exist, it will be generated automatically with default size (256px). Use ?download=true
-        to force download instead of inline display.
+        to force download instead of inline display. Use ?regenerate=true to force
+        regeneration of existing QR code.
       parameters:
       - description: Short code of the URL
         in: path
@@ -559,6 +560,11 @@ paths:
       - description: Force download (true) or inline display (false, default)
         in: query
         name: download
+        type: boolean
+      - description: Force regeneration of QR code even if it exists (true) or use
+          existing (false, default)
+        in: query
+        name: regenerate
         type: boolean
       produces:
       - image/png
