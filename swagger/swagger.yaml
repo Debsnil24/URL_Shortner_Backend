@@ -543,6 +543,113 @@ paths:
       summary: Update a short URL
       tags:
       - urls
+  /api/urls/{code}/qr:
+    get:
+      consumes:
+      - application/json
+      description: Returns the QR code image for a short link. If QR code doesn't
+        exist, it will be generated automatically with default size (256px). Use ?download=true
+        to force download instead of inline display.
+      parameters:
+      - description: Short code of the URL
+        in: path
+        name: code
+        required: true
+        type: string
+      - description: Force download (true) or inline display (false, default)
+        in: query
+        name: download
+        type: boolean
+      produces:
+      - image/png
+      responses:
+        "200":
+          description: QR code PNG image
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get QR code image
+      tags:
+      - urls
+    post:
+      consumes:
+      - application/json
+      description: Generates or regenerates a QR code for a short link with the specified
+        size. If QR code already exists, it will be regenerated.
+      parameters:
+      - description: Short code of the URL
+        in: path
+        name: code
+        required: true
+        type: string
+      - description: QR code generation request
+        in: body
+        name: request
+        schema:
+          type: object
+      - description: 'QR code size in pixels (256, 512, or 1024). Default: 256'
+        in: query
+        name: size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Generate or regenerate QR code
+      tags:
+      - urls
   /api/urls/{code}/stats:
     get:
       consumes:
