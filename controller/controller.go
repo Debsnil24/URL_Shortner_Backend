@@ -203,68 +203,85 @@ func (c *URLController) GetURLByCode(code string) (*models.URL, error) {
 }
 
 // ListURLsByUser retrieves all URLs for a user with visit statistics
+// Optimized to use a single query with JOINs instead of N+1 queries
 // Excludes QR code image binary data to optimize performance
 func (c *URLController) ListURLsByUser(userID uuid.UUID) ([]URLSummary, error) {
-	var urls []models.URL
-	// Select specific columns to exclude qr_code_image (BYTEA) for performance
-	// This prevents loading large binary data when listing URLs
-	if err := c.DB.Select("id, short_code, original_url, user_id, status, created_at, updated_at, expires_at, click_count, qr_code_size, qr_code_format, qr_code_generated_at").
-		Where("user_id = ?", userID).
-		Order("created_at DESC").
-		Find(&urls).Error; err != nil {
+	// Use a single query with LEFT JOINs and aggregations to get all statistics at once
+	// This eliminates the N+1 query problem (1 query instead of 1 + N*3 queries)
+	type urlStatsResult struct {
+		models.URL
+		VisitCount     int64      `gorm:"column:visit_count"`
+		UniqueVisitors int64      `gorm:"column:unique_visitors"`
+		LastVisitAt    *time.Time `gorm:"column:last_visit_at"`
+		LastVisitUA    *string    `gorm:"column:last_visit_ua"`
+	}
+
+	var results []urlStatsResult
+
+	// Single optimized query with aggregations
+	err := c.DB.Table("urls").
+		Select(`
+			urls.id,
+			urls.short_code,
+			urls.original_url,
+			urls.user_id,
+			urls.status,
+			urls.created_at,
+			urls.updated_at,
+			urls.expires_at,
+			urls.click_count,
+			urls.qr_code_size,
+			urls.qr_code_format,
+			urls.qr_code_generated_at,
+			COALESCE(COUNT(DISTINCT url_visits.id), 0) as visit_count,
+			COALESCE(COUNT(DISTINCT url_visits.ip_address), 0) as unique_visitors,
+			MAX(url_visits.created_at) as last_visit_at,
+			(SELECT user_agent FROM url_visits 
+			 WHERE url_visits.url_id = urls.id 
+			 ORDER BY url_visits.created_at DESC 
+			 LIMIT 1) as last_visit_ua
+		`).
+		Joins("LEFT JOIN url_visits ON url_visits.url_id = urls.id").
+		Where("urls.user_id = ?", userID).
+		Group("urls.id").
+		Order("urls.created_at DESC").
+		Scan(&results).Error
+
+	if err != nil {
 		return nil, err
 	}
 
-	summaries := make([]URLSummary, 0, len(urls))
-	for _, urlRecord := range urls {
-		visitCount, err := c.GetVisitCount(urlRecord.ID)
-		if err != nil {
-			visitCount = 0 // Continue even if count fails
-		}
-
-		uniqueVisitors, err := c.GetUniqueVisitorCount(urlRecord.ID)
-		if err != nil {
-			uniqueVisitors = 0 // Continue even if count fails
-		}
-
-		latestVisit, err := c.GetLatestVisit(urlRecord.ID)
-		var lastVisitAt *time.Time
-		var lastVisitUserAgent *string
-		if err == nil && latestVisit != nil {
-			lastVisitAt = &latestVisit.CreatedAt
-			ua := latestVisit.UserAgent
-			lastVisitUserAgent = &ua
-		}
-
+	summaries := make([]URLSummary, 0, len(results))
+	for _, result := range results {
 		// Use TotalVisits as the source of truth for click count to ensure consistency
 		// TotalVisits is the actual count from url_visits table, which is more reliable
 		// If visitCount doesn't match ClickCount, prefer visitCount (the actual data)
-		displayClickCount := int(visitCount)
-		if displayClickCount == 0 && urlRecord.ClickCount > 0 {
+		displayClickCount := int(result.VisitCount)
+		if displayClickCount == 0 && result.ClickCount > 0 {
 			// Fallback to stored click_count if visitCount is 0 but click_count exists
 			// This handles edge cases where visits table might be empty
-			displayClickCount = urlRecord.ClickCount
+			displayClickCount = result.ClickCount
 		}
 
 		// Check if QR code is available (without loading binary data)
-		qrCodeAvailable := urlRecord.QRCodeGeneratedAt != nil && urlRecord.QRCodeSize > 0
+		qrCodeAvailable := result.QRCodeGeneratedAt != nil && result.QRCodeSize > 0
 
 		summaries = append(summaries, URLSummary{
-			ShortCode:          urlRecord.ShortCode,
-			OriginalURL:        urlRecord.OriginalURL,
-			Status:             urlRecord.Status,
+			ShortCode:          result.ShortCode,
+			OriginalURL:        result.OriginalURL,
+			Status:             result.Status,
 			ClickCount:         displayClickCount, // Use TotalVisits as source of truth
-			CreatedAt:          urlRecord.CreatedAt,
-			UpdatedAt:          urlRecord.UpdatedAt,
-			ExpiresAt:          urlRecord.ExpiresAt,
-			TotalVisits:        visitCount,
-			UniqueVisitors:     uniqueVisitors,
-			LastVisitAt:        lastVisitAt,
-			LastVisitUserAgent: lastVisitUserAgent,
+			CreatedAt:          result.CreatedAt,
+			UpdatedAt:          result.UpdatedAt,
+			ExpiresAt:          result.ExpiresAt,
+			TotalVisits:        result.VisitCount,
+			UniqueVisitors:     result.UniqueVisitors,
+			LastVisitAt:        result.LastVisitAt,
+			LastVisitUserAgent: result.LastVisitUA,
 			QRCodeAvailable:    qrCodeAvailable,
-			QRCodeSize:         urlRecord.QRCodeSize,
-			QRCodeFormat:       urlRecord.QRCodeFormat,
-			QRCodeGeneratedAt:  urlRecord.QRCodeGeneratedAt,
+			QRCodeSize:         result.QRCodeSize,
+			QRCodeFormat:       result.QRCodeFormat,
+			QRCodeGeneratedAt:  result.QRCodeGeneratedAt,
 		})
 	}
 
@@ -448,7 +465,9 @@ func (c *URLController) GetLatestVisit(urlID uint) (*models.URLVisit, error) {
 }
 
 // GetURLStats retrieves statistics for a URL if it belongs to the specified user
+// Optimized to use a single query with JOINs instead of multiple separate queries
 func (c *URLController) GetURLStats(code string, userID uuid.UUID) (*URLStats, error) {
+	// First, get the URL and verify ownership
 	urlRecord, err := c.GetURLByCode(code)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -461,31 +480,48 @@ func (c *URLController) GetURLStats(code string, userID uuid.UUID) (*URLStats, e
 		return nil, errors.New("permission denied")
 	}
 
-	visitCount, err := c.GetVisitCount(urlRecord.ID)
-	if err != nil {
-		return nil, err
+	// Use a single query with LEFT JOINs and aggregations to get all statistics at once
+	// This eliminates the N+1 query problem (1 query instead of 3 separate queries)
+	type statsResult struct {
+		VisitCount     int64      `gorm:"column:visit_count"`
+		UniqueVisitors int64      `gorm:"column:unique_visitors"`
+		LastVisitAt    *time.Time `gorm:"column:last_visit_at"`
+		LastVisitUA    string     `gorm:"column:last_visit_ua"`
 	}
 
-	uniqueVisitors, err := c.GetUniqueVisitorCount(urlRecord.ID)
+	var stats statsResult
+	err = c.DB.Table("urls").
+		Select(`
+			COALESCE(COUNT(DISTINCT url_visits.id), 0) as visit_count,
+			COALESCE(COUNT(DISTINCT url_visits.ip_address), 0) as unique_visitors,
+			MAX(url_visits.created_at) as last_visit_at,
+			COALESCE((SELECT user_agent FROM url_visits 
+			 WHERE url_visits.url_id = urls.id 
+			 ORDER BY url_visits.created_at DESC 
+			 LIMIT 1), '') as last_visit_ua
+		`).
+		Joins("LEFT JOIN url_visits ON url_visits.url_id = urls.id").
+		Where("urls.id = ?", urlRecord.ID).
+		Group("urls.id").
+		Scan(&stats).Error
+
 	if err != nil {
 		return nil, err
-	}
-
-	latestVisit, err := c.GetLatestVisit(urlRecord.ID)
-	var lastVisitAt *time.Time
-	var lastVisitUserAgent string
-	if err == nil && latestVisit != nil {
-		lastVisitAt = &latestVisit.CreatedAt
-		lastVisitUserAgent = latestVisit.UserAgent
 	}
 
 	// Use TotalVisits as the source of truth for click count to ensure consistency
 	// TotalVisits is the actual count from url_visits table, which is more reliable
-	displayClickCount := int(visitCount)
+	// If visitCount doesn't match ClickCount, prefer visitCount (the actual data)
+	displayClickCount := int(stats.VisitCount)
 	if displayClickCount == 0 && urlRecord.ClickCount > 0 {
 		// Fallback to stored click_count if visitCount is 0 but click_count exists
 		// This handles edge cases where visits table might be empty
 		displayClickCount = urlRecord.ClickCount
+	}
+
+	lastVisitUserAgent := stats.LastVisitUA
+	if lastVisitUserAgent == "" {
+		lastVisitUserAgent = ""
 	}
 
 	return &URLStats{
@@ -493,9 +529,9 @@ func (c *URLController) GetURLStats(code string, userID uuid.UUID) (*URLStats, e
 		OriginalURL:        urlRecord.OriginalURL,
 		Status:             urlRecord.Status,
 		ClickCount:         displayClickCount, // Use TotalVisits as source of truth
-		TotalVisits:        visitCount,
-		UniqueVisitors:     uniqueVisitors,
-		LastVisitAt:        lastVisitAt,
+		TotalVisits:        stats.VisitCount,
+		UniqueVisitors:     stats.UniqueVisitors,
+		LastVisitAt:        stats.LastVisitAt,
 		LastVisitUserAgent: lastVisitUserAgent,
 	}, nil
 }
