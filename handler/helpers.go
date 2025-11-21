@@ -76,13 +76,9 @@ func handleControllerError(c *gin.Context, err error) bool {
 	return false
 }
 
-// NormalizeStatus normalizes a status string by trimming whitespace and converting to lowercase
-func NormalizeStatus(status string) string {
-	return strings.ToLower(strings.TrimSpace(status))
-}
-
 // IsStatusPaused checks if a status is paused (case-insensitive)
+// Delegates to util.IsStatusPaused for consistency
 func IsStatusPaused(status string) bool {
-	return NormalizeStatus(status) == util.StatusPaused
+	return util.IsStatusPaused(status)
 }
 
