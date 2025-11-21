@@ -2,8 +2,10 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -186,6 +188,10 @@ func (h *Handler) ListURLs(c *gin.Context) {
 		UniqueVisitors     int64      `json:"unique_visitors"`
 		LastVisitAt        *time.Time `json:"last_visit_at"`
 		LastVisitUserAgent *string    `json:"last_visit_user_agent"`
+		QRCodeAvailable    bool       `json:"qr_code_available"`
+		QRCodeSize         int        `json:"qr_code_size,omitempty"`
+		QRCodeFormat       string     `json:"qr_code_format,omitempty"`
+		QRCodeGeneratedAt  *time.Time `json:"qr_code_generated_at,omitempty"`
 	}
 
 	response := make([]urlSummary, 0, len(summaries))
@@ -202,6 +208,10 @@ func (h *Handler) ListURLs(c *gin.Context) {
 			UniqueVisitors:     summary.UniqueVisitors,
 			LastVisitAt:        summary.LastVisitAt,
 			LastVisitUserAgent: summary.LastVisitUserAgent,
+			QRCodeAvailable:    summary.QRCodeAvailable,
+			QRCodeSize:         summary.QRCodeSize,
+			QRCodeFormat:       summary.QRCodeFormat,
+			QRCodeGeneratedAt:  summary.QRCodeGeneratedAt,
 		})
 	}
 
@@ -575,6 +585,143 @@ func (h *Handler) GetURLStats(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    responseData,
+	})
+}
+
+// GetQRCode godoc
+// @Summary      Get QR code image
+// @Description  Returns the QR code image for a short link. If QR code doesn't exist, it will be generated automatically with default size (256px).
+// @Tags         urls
+// @Accept       json
+// @Produce      image/png
+// @Param        code  path      string  true  "Short code of the URL"
+// @Success      200   {file}    binary  "QR code PNG image"
+// @Failure      401   {object}  map[string]interface{}
+// @Failure      403   {object}  map[string]interface{}
+// @Failure      404   {object}  map[string]interface{}
+// @Failure      500   {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/urls/{code}/qr [get]
+func (h *Handler) GetQRCode(c *gin.Context) {
+	code := c.Param("code")
+
+	// Get userID from context (set by AuthRequired middleware)
+	userID, err := GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Use controller to get QR code (includes ownership check and lazy generation)
+	qrCodeBytes, _, format, err := h.urlController.GetQRCode(code, userID)
+	if err != nil {
+		if err.Error() == "URL not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
+			return
+		}
+		if err.Error() == "permission denied" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to access this URL"})
+			return
+		}
+		log.Printf("event=get_qr_code_error code=%s err=%v", code, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get QR code"})
+		return
+	}
+
+	// Set appropriate content type based on format
+	contentType := "image/png"
+	if format == "svg" {
+		contentType = "image/svg+xml"
+	}
+
+	// Set headers and return image
+	c.Header("Content-Type", contentType)
+	c.Header("Content-Length", fmt.Sprintf("%d", len(qrCodeBytes)))
+	c.Data(http.StatusOK, contentType, qrCodeBytes)
+}
+
+// GenerateQRCode godoc
+// @Summary      Generate or regenerate QR code
+// @Description  Generates or regenerates a QR code for a short link with the specified size. If QR code already exists, it will be regenerated.
+// @Tags         urls
+// @Accept       json
+// @Produce      json
+// @Param        code  path      string  true  "Short code of the URL"
+// @Param        request  body      object  false  "QR code generation request"
+// @Param        size  query     int     false  "QR code size in pixels (256, 512, or 1024). Default: 256"
+// @Success      200      {object}  map[string]interface{}
+// @Failure      400      {object}  map[string]interface{}
+// @Failure      401      {object}  map[string]interface{}
+// @Failure      403      {object}  map[string]interface{}
+// @Failure      404      {object}  map[string]interface{}
+// @Failure      500      {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/urls/{code}/qr [post]
+func (h *Handler) GenerateQRCode(c *gin.Context) {
+	code := c.Param("code")
+
+	// Get userID from context (set by AuthRequired middleware)
+	userID, err := GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Get size from query parameter or request body, default to 256
+	size := 256
+	if sizeParam := c.Query("size"); sizeParam != "" {
+		parsedSize, err := strconv.Atoi(sizeParam)
+		if err == nil {
+			size = parsedSize
+		}
+	} else {
+		// Try to get from request body
+		var req struct {
+			Size int `json:"size"`
+		}
+		if err := c.ShouldBindJSON(&req); err == nil && req.Size > 0 {
+			size = req.Size
+		}
+	}
+
+	// Use controller to generate QR code (includes ownership check)
+	urlRecord, err := h.urlController.GenerateQRCode(code, userID, size)
+	if err != nil {
+		if err.Error() == "URL not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
+			return
+		}
+		if err.Error() == "permission denied" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to access this URL"})
+			return
+		}
+		if strings.Contains(err.Error(), "invalid QR code size") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		log.Printf("event=generate_qr_code_error code=%s err=%v", code, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate QR code"})
+		return
+	}
+
+	// Build response data
+	data := gin.H{
+		"short_code":           urlRecord.ShortCode,
+		"original_url":         urlRecord.OriginalURL,
+		"qr_code_size":         urlRecord.QRCodeSize,
+		"qr_code_format":       urlRecord.QRCodeFormat,
+		"qr_code_generated_at": nil,
+	}
+
+	// Include qr_code_generated_at if it exists
+	if urlRecord.QRCodeGeneratedAt != nil {
+		data["qr_code_generated_at"] = urlRecord.QRCodeGeneratedAt.Format(time.RFC3339)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "QR code generated successfully",
+		"data":    data,
 	})
 }
 

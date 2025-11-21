@@ -26,6 +26,10 @@ type URLSummary struct {
 	UniqueVisitors     int64
 	LastVisitAt        *time.Time
 	LastVisitUserAgent *string
+	QRCodeAvailable    bool
+	QRCodeSize         int
+	QRCodeFormat       string
+	QRCodeGeneratedAt  *time.Time
 }
 
 // URLStats represents statistics for a URL
@@ -242,6 +246,9 @@ func (c *URLController) ListURLsByUser(userID uuid.UUID) ([]URLSummary, error) {
 			displayClickCount = urlRecord.ClickCount
 		}
 
+		// Check if QR code is available (without loading binary data)
+		qrCodeAvailable := urlRecord.QRCodeGeneratedAt != nil && urlRecord.QRCodeSize > 0
+
 		summaries = append(summaries, URLSummary{
 			ShortCode:          urlRecord.ShortCode,
 			OriginalURL:        urlRecord.OriginalURL,
@@ -254,6 +261,10 @@ func (c *URLController) ListURLsByUser(userID uuid.UUID) ([]URLSummary, error) {
 			UniqueVisitors:     uniqueVisitors,
 			LastVisitAt:        lastVisitAt,
 			LastVisitUserAgent: lastVisitUserAgent,
+			QRCodeAvailable:    qrCodeAvailable,
+			QRCodeSize:         urlRecord.QRCodeSize,
+			QRCodeFormat:       urlRecord.QRCodeFormat,
+			QRCodeGeneratedAt:  urlRecord.QRCodeGeneratedAt,
 		})
 	}
 
