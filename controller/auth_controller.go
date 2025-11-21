@@ -2,7 +2,6 @@ package controller
 
 import (
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/Debsnil24/URL_Shortner.git/models"
@@ -25,7 +24,7 @@ func (s *AuthService) DB() *gorm.DB {
 }
 
 func (s *AuthService) Register(req *models.RegisterRequest) (*models.AuthResponse, error) {
-	email := strings.ToLower(strings.TrimSpace(req.Email))
+	email := util.NormalizeEmail(req.Email)
 
 	var existing models.User
 	if err := s.db.Where("email = ?", email).First(&existing).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -69,7 +68,7 @@ func (s *AuthService) Register(req *models.RegisterRequest) (*models.AuthRespons
 }
 
 func (s *AuthService) Login(req *models.LoginRequest) (*models.AuthResponse, error) {
-	email := strings.ToLower(strings.TrimSpace(req.Email))
+	email := util.NormalizeEmail(req.Email)
 
 	var user models.User
 	if err := s.db.Where("email = ?", email).First(&user).Error; err != nil {

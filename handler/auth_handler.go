@@ -159,7 +159,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// Get Swagger allowed email for comparison
 	allowedEmail := os.Getenv("SWAGGER_ALLOWED_EMAIL")
-	requestEmail := strings.ToLower(strings.TrimSpace(req.Email))
+	requestEmail := util.NormalizeEmail(req.Email)
 
 	// If Swagger login, verify email is whitelisted
 	if isSwaggerLogin {
@@ -172,7 +172,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		}
 
 		// Normalize email for comparison
-		allowedEmailNormalized := strings.ToLower(strings.TrimSpace(allowedEmail))
+		allowedEmailNormalized := util.NormalizeEmail(allowedEmail)
 
 		// Check if email matches whitelisted email
 		if requestEmail != allowedEmailNormalized {
@@ -187,7 +187,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	} else {
 		// Normal frontend login - block Swagger-allowed email from accessing frontend
 		if allowedEmail != "" {
-			allowedEmailNormalized := strings.ToLower(strings.TrimSpace(allowedEmail))
+			allowedEmailNormalized := util.NormalizeEmail(allowedEmail)
 			if requestEmail == allowedEmailNormalized {
 				c.JSON(http.StatusForbidden, models.AuthResponse{
 					Success: false,

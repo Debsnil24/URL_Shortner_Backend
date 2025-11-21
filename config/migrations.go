@@ -184,5 +184,33 @@ func GetMigrations() []*gormigrate.Migration {
 				`).Error
 			},
 		},
+		{
+			ID: "20251121_performance_indexes",
+			Migrate: func(tx *gorm.DB) error {
+				// Add indexes for performance optimization
+				// These indexes significantly improve query performance for:
+				// - JOINs between urls and url_visits
+				// - Unique visitor counts (DISTINCT ip_address)
+				// - Latest visit queries (ORDER BY created_at DESC)
+				// - User-specific URL queries
+				if err := tx.Exec(`
+					CREATE INDEX IF NOT EXISTS idx_url_visits_url_id ON url_visits(url_id);
+					CREATE INDEX IF NOT EXISTS idx_url_visits_ip_address ON url_visits(ip_address);
+					CREATE INDEX IF NOT EXISTS idx_url_visits_created_at ON url_visits(created_at DESC);
+					CREATE INDEX IF NOT EXISTS idx_urls_user_id ON urls(user_id);
+				`).Error; err != nil {
+					return err
+				}
+				return nil
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Exec(`
+					DROP INDEX IF EXISTS idx_url_visits_url_id;
+					DROP INDEX IF EXISTS idx_url_visits_ip_address;
+					DROP INDEX IF EXISTS idx_url_visits_created_at;
+					DROP INDEX IF EXISTS idx_urls_user_id;
+				`).Error
+			},
+		},
 	}
 }

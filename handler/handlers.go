@@ -258,12 +258,7 @@ func (h *Handler) DeleteURL(c *gin.Context) {
 	// Use controller to delete URL (includes ownership check)
 	err = h.urlController.DeleteURL(code, userID)
 	if err != nil {
-		if err.Error() == "URL not found" {
-			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
-			return
-		}
-		if err.Error() == "permission denied" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to delete this URL"})
+		if handleControllerError(c, err) {
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete URL"})
@@ -306,16 +301,7 @@ func (h *Handler) UpdateURLStatus(c *gin.Context) {
 
 	urlRecord, err := h.urlController.UpdateURLStatus(code, userID, req.Status)
 	if err != nil {
-		if err.Error() == "URL not found" {
-			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
-			return
-		}
-		if err.Error() == "permission denied" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to update this URL"})
-			return
-		}
-		if err.Error() == "status must be either 'active' or 'paused'" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid status value. Status must be either 'active' or 'paused'"})
+		if handleControllerError(c, err) {
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update URL status"})
@@ -379,29 +365,7 @@ func (h *Handler) UpdateURL(c *gin.Context) {
 
 	urlRecord, err := h.urlController.UpdateURL(code, userID, &req)
 	if err != nil {
-		if err.Error() == "URL not found" {
-			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
-			return
-		}
-		if err.Error() == "permission denied" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to update this URL"})
-			return
-		}
-		if err.Error() == "cannot update URL of expired link. Update expiration to reactivate it" {
-			c.JSON(http.StatusGone, gin.H{"error": "Cannot update URL of expired link. Update expiration to reactivate it."})
-			return
-		}
-		if strings.Contains(err.Error(), "at least one field") ||
-			strings.Contains(err.Error(), "cannot provide both") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		if strings.Contains(err.Error(), "must be between") ||
-			strings.Contains(err.Error(), "cannot exceed") ||
-			strings.Contains(err.Error(), "invalid expiration preset") ||
-			strings.Contains(err.Error(), "must be in the future") ||
-			strings.Contains(err.Error(), "invalid URL format") {
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		if handleControllerError(c, err) {
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update URL"})
@@ -457,8 +421,7 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 	}
 
 	// Exclude reserved paths that should not be treated as short codes
-	reservedPaths := []string{"swagger", "api", "auth", "favicon.ico", "robots.txt"}
-	for _, reserved := range reservedPaths {
+	for _, reserved := range util.ReservedPaths {
 		if code == reserved {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Short URL not found"})
 			return
@@ -479,14 +442,9 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 	}
 
 	// Check status first - if paused, return 410 (applies to both GET and HEAD)
-	// Normalize status by trimming whitespace and converting to lowercase for comparison
-	status := strings.ToLower(strings.TrimSpace(urlRecord.Status))
-	if status == "paused" {
+	if IsStatusPaused(urlRecord.Status) {
 		log.Printf("event=redirect_error code=%s reason=paused status=%q", code, urlRecord.Status)
-		// Prevent caching of error responses
-		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-		c.Header("Pragma", "no-cache")
-		c.Header("Expires", "0")
+		setNoCacheHeaders(c)
 		c.JSON(http.StatusGone, gin.H{"error": "Link is paused"})
 		return
 	}
@@ -496,10 +454,7 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 	if urlRecord.ExpiresAt != nil {
 		if urlRecord.ExpiresAt.Before(now) || urlRecord.ExpiresAt.Equal(now) {
 			log.Printf("event=redirect_error code=%s reason=expired", code)
-			// Prevent caching of error responses
-			c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-			c.Header("Pragma", "no-cache")
-			c.Header("Expires", "0")
+			setNoCacheHeaders(c)
 			c.JSON(http.StatusGone, gin.H{"error": "Link has expired"})
 			return
 		}
@@ -508,10 +463,7 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 	// Handle HEAD requests - just return status, don't count as click or redirect
 	// HEAD is used for link status checks by frontend
 	if c.Request.Method == "HEAD" {
-		// Prevent caching of HEAD responses
-		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-		c.Header("Pragma", "no-cache")
-		c.Header("Expires", "0")
+		setNoCacheHeaders(c)
 		c.Header("Location", urlRecord.OriginalURL)
 		c.Status(http.StatusOK)
 		return
@@ -527,9 +479,7 @@ func (h *Handler) RedirectURL(c *gin.Context) {
 
 	// Prevent caching of redirect responses to ensure fresh redirects
 	// This is important because link status (active/paused) can change dynamically
-	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-	c.Header("Pragma", "no-cache")
-	c.Header("Expires", "0")
+	setNoCacheHeaders(c)
 
 	log.Printf("event=redirect_success code=%s url=%s", code, urlRecord.OriginalURL)
 	c.Redirect(http.StatusFound, urlRecord.OriginalURL)
@@ -562,12 +512,7 @@ func (h *Handler) GetURLStats(c *gin.Context) {
 	// Use controller to get URL statistics (includes ownership check)
 	stats, err := h.urlController.GetURLStats(code, userID)
 	if err != nil {
-		if err.Error() == "URL not found" {
-			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
-			return
-		}
-		if err.Error() == "permission denied" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to view this URL"})
+		if handleControllerError(c, err) {
 			return
 		}
 		log.Printf("event=url_stats_error code=%s err=%v", code, err)
@@ -673,16 +618,7 @@ func (h *Handler) GetQRCode(c *gin.Context) {
 		// Generate/regenerate QR code
 		urlRecord, err := h.urlController.GenerateQRCode(code, userID, size, baseURL)
 		if err != nil {
-			if err.Error() == "URL not found" {
-				c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
-				return
-			}
-			if err.Error() == "permission denied" {
-				c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to access this URL"})
-				return
-			}
-			if strings.Contains(err.Error(), "invalid QR code size") {
-				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			if handleControllerError(c, err) {
 				return
 			}
 			log.Printf("event=get_qr_code_error code=%s err=%v", code, err)
@@ -727,12 +663,7 @@ func (h *Handler) GetQRCode(c *gin.Context) {
 	// Use controller to get QR code (includes ownership check and lazy generation)
 	qrCodeBytes, _, format, err := h.urlController.GetQRCode(code, userID)
 	if err != nil {
-		if err.Error() == "URL not found" {
-			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
-			return
-		}
-		if err.Error() == "permission denied" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to access this URL"})
+		if handleControllerError(c, err) {
 			return
 		}
 		log.Printf("event=get_qr_code_error code=%s err=%v", code, err)
@@ -819,16 +750,7 @@ func (h *Handler) GenerateQRCode(c *gin.Context) {
 	// Use controller to generate QR code (includes ownership check)
 	urlRecord, err := h.urlController.GenerateQRCode(code, userID, size, baseURL)
 	if err != nil {
-		if err.Error() == "URL not found" {
-			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
-			return
-		}
-		if err.Error() == "permission denied" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to access this URL"})
-			return
-		}
-		if strings.Contains(err.Error(), "invalid QR code size") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		if handleControllerError(c, err) {
 			return
 		}
 		log.Printf("event=generate_qr_code_error code=%s err=%v", code, err)

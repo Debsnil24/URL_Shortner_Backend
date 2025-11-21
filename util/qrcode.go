@@ -10,17 +10,24 @@ import (
 // ValidQRCodeSizes defines the allowed QR code sizes in pixels
 var ValidQRCodeSizes = []int{256, 512, 1024}
 
+// ValidQRCodeSizesMap provides O(1) lookup for valid QR code sizes
+// Used for optimized validation instead of linear search
+var ValidQRCodeSizesMap = map[int]bool{
+	256:  true,
+	512:  true,
+	1024: true,
+}
+
 // DefaultQRCodeSize is the default size for QR codes
 const DefaultQRCodeSize = 256
 
 // ValidateQRCodeSize validates that the provided size is one of the allowed values
+// Optimized to use map lookup (O(1)) instead of linear search (O(n))
 func ValidateQRCodeSize(size int) error {
-	for _, validSize := range ValidQRCodeSizes {
-		if size == validSize {
-			return nil
-		}
+	if !ValidQRCodeSizesMap[size] {
+		return fmt.Errorf("invalid QR code size: %d. Allowed sizes: %v", size, ValidQRCodeSizes)
 	}
-	return fmt.Errorf("invalid QR code size: %d. Allowed sizes: %v", size, ValidQRCodeSizes)
+	return nil
 }
 
 // GenerateQRCode generates a QR code image for the given URL
