@@ -111,6 +111,17 @@ definitions:
       success:
         type: boolean
     type: object
+  models.UpdateStatusRequest:
+    properties:
+      status:
+        description: 'Required: must be "active" or "paused"'
+        enum:
+        - active
+        - paused
+        type: string
+    required:
+    - status
+    type: object
   models.UpdateURLRequest:
     properties:
       custom_expiration:
@@ -575,6 +586,62 @@ paths:
       security:
       - BearerAuth: []
       summary: Get URL statistics
+      tags:
+      - urls
+  /api/urls/{code}/status:
+    patch:
+      consumes:
+      - application/json
+      description: Updates the status of a short link (pause or resume). Only updates
+        the status field, does not affect URL or expiration.
+      parameters:
+      - description: Short code of the URL
+        in: path
+        name: code
+        required: true
+        type: string
+      - description: Status update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.UpdateStatusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update URL status
       tags:
       - urls
   /auth/google:

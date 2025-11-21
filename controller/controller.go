@@ -17,6 +17,7 @@ import (
 type URLSummary struct {
 	ShortCode          string
 	OriginalURL        string
+	Status             string
 	ClickCount         int
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
@@ -31,6 +32,7 @@ type URLSummary struct {
 type URLStats struct {
 	ShortCode          string
 	OriginalURL        string
+	Status             string
 	ClickCount         int
 	TotalVisits        int64
 	UniqueVisitors     int64
@@ -167,6 +169,7 @@ func (c *URLController) GenerateShortCode(originalURL string, userID uuid.UUID, 
 				OriginalURL: originalURL,
 				ClickCount:  0,
 				UserID:      userID,
+				Status:      "active",
 				CreatedAt:   createdAt,
 				UpdatedAt:   createdAt,
 				ExpiresAt:   expiresAt,
@@ -236,6 +239,7 @@ func (c *URLController) ListURLsByUser(userID uuid.UUID) ([]URLSummary, error) {
 		summaries = append(summaries, URLSummary{
 			ShortCode:          urlRecord.ShortCode,
 			OriginalURL:        urlRecord.OriginalURL,
+			Status:             urlRecord.Status,
 			ClickCount:         displayClickCount, // Use TotalVisits as source of truth
 			CreatedAt:          urlRecord.CreatedAt,
 			UpdatedAt:          urlRecord.UpdatedAt,
@@ -470,10 +474,44 @@ func (c *URLController) GetURLStats(code string, userID uuid.UUID) (*URLStats, e
 	return &URLStats{
 		ShortCode:          urlRecord.ShortCode,
 		OriginalURL:        urlRecord.OriginalURL,
+		Status:             urlRecord.Status,
 		ClickCount:         displayClickCount, // Use TotalVisits as source of truth
 		TotalVisits:        visitCount,
 		UniqueVisitors:     uniqueVisitors,
 		LastVisitAt:        lastVisitAt,
 		LastVisitUserAgent: lastVisitUserAgent,
 	}, nil
+}
+
+// UpdateURLStatus updates only the status field of a URL
+func (c *URLController) UpdateURLStatus(code string, userID uuid.UUID, status string) (*models.URL, error) {
+	// Validate status value
+	if status != "active" && status != "paused" {
+		return nil, errors.New("status must be either 'active' or 'paused'")
+	}
+
+	// Get existing URL
+	var urlRecord models.URL
+	if err := c.DB.Where("short_code = ?", code).First(&urlRecord).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("URL not found")
+		}
+		return nil, err
+	}
+
+	// Check ownership
+	if urlRecord.UserID != userID {
+		return nil, errors.New("permission denied")
+	}
+
+	// Update status and timestamp
+	urlRecord.Status = status
+	urlRecord.UpdatedAt = time.Now()
+
+	// Save changes
+	if err := c.DB.Save(&urlRecord).Error; err != nil {
+		return nil, err
+	}
+
+	return &urlRecord, nil
 }

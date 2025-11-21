@@ -20,6 +20,10 @@ type UpdateURLRequest struct {
 	CustomExpiration *CustomExpiration `json:"custom_expiration,omitempty"` // Optional: only if custom expiration selected
 }
 
+type UpdateStatusRequest struct {
+	Status string `json:"status" binding:"required,oneof=active paused"` // Required: must be "active" or "paused"
+}
+
 type ShortenURLResponse struct {
 	ShortenedURL string `json:"shortened_url"`
 	OriginalURL  string `json:"original_url"`
