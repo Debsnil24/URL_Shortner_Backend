@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +47,37 @@ func GetUserIDFromContext(c *gin.Context) (uuid.UUID, error) {
 	}
 
 	return userID, nil
+}
+
+// setCORSHeaders sets CORS headers for cross-origin requests
+// Validates origin against allowed origins and sets appropriate headers
+func setCORSHeaders(c *gin.Context) {
+	origin := c.GetHeader("Origin")
+	allowedOrigins := []string{
+		"http://localhost:3000",
+		"https://url-shortner-nine-psi.vercel.app",
+		"https://www.sniply.co.in",
+		"https://sniply.co.in",
+		"https://dev.sniply.co.in",
+	}
+
+	if origin != "" {
+		// Validate origin against allowed origins
+		for _, allowed := range allowedOrigins {
+			if origin == allowed {
+				c.Header("Access-Control-Allow-Origin", origin)
+				break
+			}
+		}
+	} else {
+		// Fallback: allow localhost for development when Origin header is missing
+		c.Header("Access-Control-Allow-Origin", "http://localhost:3000")
+	}
+
+	c.Header("Access-Control-Allow-Credentials", "true")
+	c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
+	c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+	c.Header("Access-Control-Expose-Headers", "Content-Type, Content-Length, Content-Disposition")
 }
 
 // TestHandler godoc
@@ -573,9 +605,97 @@ func (h *Handler) GetURLStats(c *gin.Context) {
 	})
 }
 
+// GetQRToken godoc
+// @Summary      Get QR code authentication token
+// @Description  Returns a short-lived token (5-10 minutes) for QR code image requests. This token can be used in the Authorization header to access QR code images without requiring cookie-based authentication.
+// @Tags         urls
+// @Accept       json
+// @Produce      json
+// @Param        code  path      string  true  "Short code of the URL"
+// @Success      200   {object}  map[string]interface{}  "Token object with 'token' and 'expires_in' fields"
+// @Failure      401   {object}  map[string]interface{}
+// @Failure      403   {object}  map[string]interface{}
+// @Failure      404   {object}  map[string]interface{}
+// @Failure      500   {object}  map[string]interface{}
+// @Security     BearerAuth
+// @Router       /api/urls/{code}/qr-token [get]
+func (h *Handler) GetQRToken(c *gin.Context) {
+	code := c.Param("code")
+
+	// Get userID from context (set by AuthRequired middleware)
+	userID, err := GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Get URL to verify ownership and get user email
+	urlRecord, err := h.urlController.GetURLByCode(code)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "URL not found"})
+			return
+		}
+		log.Printf("event=get_qr_token_error code=%s err=%v", code, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch URL"})
+		return
+	}
+
+	// Verify ownership
+	if urlRecord.UserID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to access this URL"})
+		return
+	}
+
+	// Get user email from context (set by AuthRequired middleware) or fetch from database
+	// We need email for the token claims
+	var userEmail string
+	if emailValue, exists := c.Get("userEmail"); exists {
+		if email, ok := emailValue.(string); ok {
+			userEmail = email
+		}
+	}
+
+	// If email not in context, fetch user from database
+	if userEmail == "" {
+		var user models.User
+		if err := h.urlController.DB.Where("id = ?", userID).First(&user).Error; err != nil {
+			log.Printf("event=get_qr_token_error code=%s err=%v", code, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user information"})
+			return
+		}
+		userEmail = user.Email
+	}
+
+	// Generate QR token
+	qrToken, err := util.GenerateQRToken(userID, userEmail, code)
+	if err != nil {
+		log.Printf("event=get_qr_token_error code=%s err=%v", code, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate QR token"})
+		return
+	}
+
+	// Get token expiry in seconds (default 5 minutes = 300 seconds)
+	expiryMinutes := 5
+	if envExpiry := os.Getenv("QR_TOKEN_EXPIRY_MINUTES"); envExpiry != "" {
+		if parsed, err := strconv.Atoi(envExpiry); err == nil && parsed > 0 {
+			expiryMinutes = parsed
+		}
+	}
+	expiresIn := expiryMinutes * 60
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"token":      qrToken,
+			"expires_in": expiresIn,
+		},
+	})
+}
+
 // GetQRCode godoc
 // @Summary      Get QR code image
-// @Description  Returns the QR code image for a short link. If QR code doesn't exist, it will be generated automatically with default size (256px). Use ?download=true to force download instead of inline display. Use ?regenerate=true to force regeneration of existing QR code.
+// @Description  Returns the QR code image for a short link. If QR code doesn't exist, it will be generated automatically with default size (256px). Use ?download=true to force download instead of inline display. Use ?regenerate=true to force regeneration of existing QR code. Supports both cookie-based authentication and QR token authentication via Authorization header.
 // @Tags         urls
 // @Accept       json
 // @Produce      image/png
@@ -592,11 +712,26 @@ func (h *Handler) GetURLStats(c *gin.Context) {
 func (h *Handler) GetQRCode(c *gin.Context) {
 	code := c.Param("code")
 
-	// Get userID from context (set by AuthRequired middleware)
+	// Get userID from context (set by OptionalAuth middleware)
+	// OptionalAuth tries QR token first, then falls back to cookie auth
 	userID, err := GetUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 		return
+	}
+
+	// If QR token was used, verify shortCode matches (optional validation)
+	if authMethod, exists := c.Get("authMethod"); exists && authMethod == "qr_token" {
+		// Verify shortCode matches (defense in depth)
+		authHeader := c.GetHeader("Authorization")
+		if authHeader != "" && strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+			tokenString := strings.TrimSpace(authHeader[len("Bearer "):])
+			qrClaims, qrErr := util.ValidateQRToken(tokenString)
+			if qrErr == nil && qrClaims.ShortCode != code {
+				c.JSON(http.StatusForbidden, gin.H{"error": "Token not valid for this QR code"})
+				return
+			}
+		}
 	}
 
 	// Check if regeneration is requested
@@ -639,7 +774,10 @@ func (h *Handler) GetQRCode(c *gin.Context) {
 		// Check if download parameter is set
 		download := c.Query("download") == "true" || c.Query("download") == "1"
 
-		// Set headers
+		// Set CORS headers for cross-origin requests
+		setCORSHeaders(c)
+
+		// Set content headers
 		c.Header("Content-Type", contentType)
 		c.Header("Content-Length", fmt.Sprintf("%d", len(qrCodeBytes)))
 
@@ -680,7 +818,10 @@ func (h *Handler) GetQRCode(c *gin.Context) {
 	// Check if download parameter is set
 	download := c.Query("download") == "true" || c.Query("download") == "1"
 
-	// Set headers
+	// Set CORS headers for cross-origin requests
+	setCORSHeaders(c)
+
+	// Set content headers
 	c.Header("Content-Type", contentType)
 	c.Header("Content-Length", fmt.Sprintf("%d", len(qrCodeBytes)))
 

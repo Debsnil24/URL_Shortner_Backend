@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/Debsnil24/URL_Shortner.git/models"
+	"github.com/Debsnil24/URL_Shortner.git/util"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // AuthRequired validates the JWT token from HttpOnly cookie and sets claims in context
@@ -33,6 +35,49 @@ func AuthRequired() gin.HandlerFunc {
 		if !ok {
 			return // Error already handled in validateAuthToken
 		}
+		
+		c.Next()
+	}
+}
+
+// OptionalAuth validates JWT token from either QR token (Authorization header) or cookie
+// Sets userID in context if either authentication method succeeds
+// Does not abort if authentication fails - allows handler to decide
+func OptionalAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// First try QR token from Authorization header
+		authHeader := c.GetHeader("Authorization")
+		if authHeader != "" && strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+			tokenString := strings.TrimSpace(authHeader[len("Bearer "):])
+			qrClaims, err := util.ValidateQRToken(tokenString)
+			if err == nil {
+				// Valid QR token - set userID in context
+				userID, parseErr := uuid.Parse(qrClaims.UserID)
+				if parseErr == nil {
+					c.Set("userID", userID)
+					c.Set("userEmail", qrClaims.Email)
+					c.Set("authMethod", "qr_token")
+					c.Next()
+					return
+				}
+			}
+			// QR token invalid, fall through to cookie auth
+		}
+
+		// Fallback to cookie-based authentication
+		config := authConfig{
+			cookieName:        "auth_token",
+			storeTokenInCtx:   false,
+			allowRedirects:    false,
+			redirectLoginPath: "/auth/login-page",
+		}
+		
+		_, _, ok := validateAuthToken(c, config)
+		if ok {
+			c.Set("authMethod", "cookie")
+			// userID already set by validateAuthToken
+		}
+		// Don't abort - let handler decide what to do
 		
 		c.Next()
 	}
