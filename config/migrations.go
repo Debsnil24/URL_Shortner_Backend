@@ -140,5 +140,31 @@ func GetMigrations() []*gormigrate.Migration {
 				`).Error
 			},
 		},
+		{
+			ID: "20251120_url_qr_code_columns",
+			Migrate: func(tx *gorm.DB) error {
+				// Add QR code columns to urls table
+				if err := tx.Exec(`
+					ALTER TABLE urls
+					ADD COLUMN IF NOT EXISTS qr_code_image BYTEA,
+					ADD COLUMN IF NOT EXISTS qr_code_size INTEGER DEFAULT 256,
+					ADD COLUMN IF NOT EXISTS qr_code_format VARCHAR(10) DEFAULT 'png',
+					ADD COLUMN IF NOT EXISTS qr_code_generated_at TIMESTAMP
+				`).Error; err != nil {
+					return err
+				}
+
+				return nil
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return tx.Exec(`
+					ALTER TABLE urls
+					DROP COLUMN IF EXISTS qr_code_image,
+					DROP COLUMN IF EXISTS qr_code_size,
+					DROP COLUMN IF EXISTS qr_code_format,
+					DROP COLUMN IF EXISTS qr_code_generated_at
+				`).Error
+			},
+		},
 	}
 }
