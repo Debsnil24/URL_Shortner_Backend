@@ -31,7 +31,8 @@ func RegisterRoutes(router *gin.Engine) {
 		api.GET("/urls", middleware.AuthRequired(), h.ListURLs)
 		api.GET("/urls/:code/stats", middleware.AuthRequired(), h.GetURLStats)
 		api.PATCH("/urls/:code/status", middleware.AuthRequired(), h.UpdateURLStatus) // Status update endpoint (must be before /urls/:code)
-		api.GET("/urls/:code/qr", middleware.AuthRequired(), h.GetQRCode)             // QR code retrieval (must be before /urls/:code)
+		api.GET("/urls/:code/qr-token", middleware.AuthRequired(), h.GetQRToken)      // QR token endpoint (must be before /urls/:code/qr)
+		api.GET("/urls/:code/qr", middleware.OptionalAuth(), h.GetQRCode)             // QR code retrieval (must be before /urls/:code) - supports both cookie and QR token auth
 		api.POST("/urls/:code/qr", middleware.AuthRequired(), h.GenerateQRCode)       // QR code generation (must be before /urls/:code)
 		api.PATCH("/urls/:code", middleware.AuthRequired(), h.UpdateURL)
 		api.DELETE("/delete/:code", middleware.AuthRequired(), h.DeleteURL)

@@ -412,7 +412,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the QR code image for a short link. If QR code doesn't exist, it will be generated automatically with default size (256px). Use ?download=true to force download instead of inline display. Use ?regenerate=true to force regeneration of existing QR code.",
+                "description": "Returns the QR code image for a short link. If QR code doesn't exist, it will be generated automatically with default size (256px). Use ?download=true to force download instead of inline display. Use ?regenerate=true to force regeneration of existing QR code. Supports both cookie-based authentication and QR token authentication via Authorization header.",
                 "consumes": [
                     "application/json"
                 ],
@@ -531,6 +531,72 @@
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/urls/{code}/qr-token": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a short-lived token (5-10 minutes) for QR code image requests. This token can be used in the Authorization header to access QR code images without requiring cookie-based authentication.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "urls"
+                ],
+                "summary": "Get QR code authentication token",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Short code of the URL",
+                        "name": "code",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Token object with 'token' and 'expires_in' fields",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true

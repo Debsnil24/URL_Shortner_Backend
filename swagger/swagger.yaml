@@ -550,7 +550,8 @@ paths:
       description: Returns the QR code image for a short link. If QR code doesn't
         exist, it will be generated automatically with default size (256px). Use ?download=true
         to force download instead of inline display. Use ?regenerate=true to force
-        regeneration of existing QR code.
+        regeneration of existing QR code. Supports both cookie-based authentication
+        and QR token authentication via Authorization header.
       parameters:
       - description: Short code of the URL
         in: path
@@ -654,6 +655,52 @@ paths:
       security:
       - BearerAuth: []
       summary: Generate or regenerate QR code
+      tags:
+      - urls
+  /api/urls/{code}/qr-token:
+    get:
+      consumes:
+      - application/json
+      description: Returns a short-lived token (5-10 minutes) for QR code image requests.
+        This token can be used in the Authorization header to access QR code images
+        without requiring cookie-based authentication.
+      parameters:
+      - description: Short code of the URL
+        in: path
+        name: code
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Token object with 'token' and 'expires_in' fields
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get QR code authentication token
       tags:
       - urls
   /api/urls/{code}/stats:

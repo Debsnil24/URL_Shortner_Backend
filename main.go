@@ -56,6 +56,8 @@ func main() {
 	config.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"}
 	config.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"}
 	config.AllowCredentials = true
+	config.ExposeHeaders = []string{"Content-Length", "Content-Type", "Content-Disposition"} // Expose headers for frontend
+	config.MaxAge = 86400                                                                    // Cache preflight for 24 hours
 	router.Use(cors.New(config))
 
 	routes.RegisterRoutes(router)
